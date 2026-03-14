@@ -30,6 +30,8 @@ from mj_manipulator.protocols import (
     Gripper,
     IKSolver,
 )
+from mj_manipulator.collision import CollisionChecker
+from mj_manipulator.grasp_manager import GraspManager, detect_grasped_object
 from mj_manipulator.trajectory import Trajectory, create_linear_trajectory
 
 __all__ = [
@@ -44,6 +46,11 @@ __all__ = [
     "create_linear_trajectory",
     # Planning
     "PlanResult",
+    # Grasp management
+    "GraspManager",
+    "detect_grasped_object",
+    # Collision checking
+    "CollisionChecker",
     # Config
     "ArmConfig",
     "EntityConfig",
