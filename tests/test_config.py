@@ -46,12 +46,6 @@ def ur5e_arm_config(side: str = "left") -> ArmConfig:
         ]],
         kinematic_limits=ur5e_kinematic_limits(),
         ee_site=f"{side}_ur5e/gripper_attachment_site",
-        gripper_actuator=f"{side}_ur5e/gripper/fingers_actuator",
-        gripper_bodies=[f"{side}_ur5e/gripper/{b}" for b in [
-            "base_mount", "base", "right_driver", "right_follower",
-            "left_driver", "left_follower",
-        ]],
-        hand_type="robotiq_2f_140",
     )
 
 
@@ -63,9 +57,6 @@ def franka_arm_config() -> ArmConfig:
         joint_names=[f"panda/joint{i}" for i in range(1, 8)],
         kinematic_limits=franka_kinematic_limits(),
         ee_site="panda/attachment_site",
-        gripper_actuator="panda/fingers_actuator",
-        gripper_bodies=["panda/left_finger", "panda/right_finger"],
-        hand_type="franka_hand",
     )
 
 
@@ -100,7 +91,8 @@ class TestArmConfig:
         assert config.name == "left_arm"
         assert config.entity_type == "arm"
         assert len(config.joint_names) == 6
-        assert config.hand_type == "robotiq_2f_140"
+        assert config.ee_site == "left_ur5e/gripper_attachment_site"
+        assert config.tcp_offset is None
 
     def test_franka_config(self):
         """Franka config has correct structure."""
@@ -108,7 +100,23 @@ class TestArmConfig:
         assert config.name == "franka"
         assert config.entity_type == "arm"
         assert len(config.joint_names) == 7
-        assert config.hand_type == "franka_hand"
+        assert config.ee_site == "panda/attachment_site"
+        assert config.tcp_offset is None
+
+    def test_tcp_offset(self):
+        """tcp_offset stores SE3 transform from ee_site to TCP."""
+        offset = np.eye(4)
+        offset[2, 3] = 0.1034  # 10.34cm along Z (Franka fingertip)
+        config = ArmConfig(
+            name="franka",
+            entity_type="arm",
+            joint_names=[f"joint{i}" for i in range(1, 8)],
+            kinematic_limits=franka_kinematic_limits(),
+            ee_site="ee_site",
+            tcp_offset=offset,
+        )
+        assert config.tcp_offset is not None
+        np.testing.assert_allclose(config.tcp_offset[2, 3], 0.1034)
 
     def test_entity_type_forced(self):
         """entity_type is always set to 'arm' by __post_init__."""

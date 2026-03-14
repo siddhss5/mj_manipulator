@@ -60,6 +60,9 @@ class EntityConfig:
 class ArmConfig(EntityConfig):
     """Configuration for a single arm.
 
+    Gripper-specific fields (body names, actuator, hand type) belong on the
+    Gripper protocol, not here. ArmConfig defines the kinematic chain only.
+
     kinematic_limits is required and robot-specific. Use your robot's
     datasheet values (e.g., KinematicLimits for UR5e, Franka, Xarm).
     """
@@ -69,10 +72,8 @@ class ArmConfig(EntityConfig):
             velocity=np.ones(1), acceleration=np.ones(1)
         )
     )
-    ee_site: str = ""
-    gripper_actuator: str = ""
-    gripper_bodies: list[str] = field(default_factory=list)
-    hand_type: str = ""  # Gripper type for affordance matching
+    ee_site: str = ""  # MuJoCo site name for Jacobian / FK
+    tcp_offset: np.ndarray | None = None  # 4x4 SE3 from ee_site to tool center point
     planning_defaults: PlanningDefaults = field(default_factory=PlanningDefaults)
 
     def __post_init__(self):
