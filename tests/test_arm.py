@@ -260,14 +260,16 @@ class TestPlanning:
         assert path is not None
         assert len(path) >= 2
 
-    def test_plan_trajectory(self, ur5e_arm):
-        """plan_trajectory returns a retimed Trajectory."""
+    def test_retime(self, ur5e_arm):
+        """retime converts a path into a time-parameterized Trajectory."""
         q_goal = UR5E_HOME.copy()
         q_goal[0] += 0.3
 
-        traj = ur5e_arm.plan_trajectory(q_goal, timeout=10.0, seed=42)
+        path = ur5e_arm.plan_to_configuration(q_goal, timeout=10.0, seed=42)
+        assert path is not None
 
-        assert traj is not None
+        traj = ur5e_arm.retime(path)
+
         assert traj.dof == 6
         assert traj.duration > 0
         assert traj.entity == "ur5e"

@@ -15,11 +15,14 @@ dependencies = [
     "toppra>=0.6.3",
     "mj-environment @ git+https://github.com/personalrobotics/mj_environment.git",
     "pycbirrt @ git+https://github.com/siddhss5/pycbirrt.git",
+    "tsr @ git+https://github.com/personalrobotics/tsr.git",
+    "eaik",
 ]
 
 [tool.uv.sources]
 mj-environment = { path = "../mj_environment", editable = true }
 pycbirrt = { path = "../pycbirrt", editable = true }
+tsr = { path = "../tsr", editable = true }
 
 [project.optional-dependencies]
 dev = [

@@ -1,0 +1,106 @@
+"""UR5e arm definition with EAIK analytical IK.
+
+Provides constants and a factory function for creating a fully configured
+Arm instance for the Universal Robots UR5e.
+
+Usage:
+    from mj_environment import Environment
+    from mj_manipulator.arms.ur5e import create_ur5e_arm
+
+    env = Environment("path/to/ur5e/scene.xml")
+    arm = create_ur5e_arm(env)
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import numpy as np
+
+from mj_manipulator.arm import Arm
+from mj_manipulator.arms.eaik_solver import MuJoCoEAIKSolver
+from mj_manipulator.config import ArmConfig, KinematicLimits
+
+if TYPE_CHECKING:
+    from mj_environment import Environment
+
+# ---------------------------------------------------------------------------
+# UR5e constants
+# ---------------------------------------------------------------------------
+
+UR5E_JOINT_NAMES = [
+    "shoulder_pan_joint",
+    "shoulder_lift_joint",
+    "elbow_joint",
+    "wrist_1_joint",
+    "wrist_2_joint",
+    "wrist_3_joint",
+]
+
+UR5E_EE_SITE = "attachment_site"
+
+UR5E_HOME = np.array([-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0])
+
+# From UR5e datasheet, halved for conservative planning
+UR5E_VELOCITY_LIMITS = np.array([3.14, 3.14, 3.14, 6.28, 6.28, 6.28]) * 0.5
+UR5E_ACCELERATION_LIMITS = np.array([2.5, 2.5, 2.5, 5.0, 5.0, 5.0]) * 0.5
+
+
+# ---------------------------------------------------------------------------
+# Factory
+# ---------------------------------------------------------------------------
+
+
+def create_ur5e_arm(
+    env: Environment,
+    *,
+    ee_site: str = UR5E_EE_SITE,
+    with_ik: bool = True,
+    tcp_offset: np.ndarray | None = None,
+) -> Arm:
+    """Create a fully configured Arm for the UR5e.
+
+    Args:
+        env: MuJoCo environment containing a UR5e model.
+        ee_site: Name of the end-effector site in the model.
+        with_ik: If True, configure EAIK analytical IK solver.
+        tcp_offset: Optional 4x4 transform from ee_site to tool center point.
+
+    Returns:
+        Arm instance with IK solver, planning, and state queries ready to use.
+    """
+    config = ArmConfig(
+        name="ur5e",
+        entity_type="arm",
+        joint_names=list(UR5E_JOINT_NAMES),
+        kinematic_limits=KinematicLimits(
+            velocity=UR5E_VELOCITY_LIMITS.copy(),
+            acceleration=UR5E_ACCELERATION_LIMITS.copy(),
+        ),
+        ee_site=ee_site,
+        tcp_offset=tcp_offset,
+    )
+
+    ik_solver = None
+    if with_ik:
+        # Create Arm first to resolve joint indices
+        arm = Arm(env, config)
+        joint_limits = arm.get_joint_limits()
+
+        # Base body = parent of first joint's body
+        first_joint_body = env.model.jnt_bodyid[arm.joint_ids[0]]
+        base_body_id = env.model.body_parentid[first_joint_body]
+
+        ik_solver = MuJoCoEAIKSolver(
+            model=env.model,
+            data=env.data,
+            joint_ids=list(arm.joint_ids),
+            joint_qpos_indices=arm.joint_qpos_indices,
+            ee_site_id=arm.ee_site_id,
+            base_body_id=base_body_id,
+            joint_limits=joint_limits,
+        )
+
+        return Arm(env, config, ik_solver=ik_solver)
+
+    return Arm(env, config)

@@ -19,6 +19,8 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
+from mj_manipulator.arms.franka import FRANKA_HOME, FRANKA_JOINT_NAMES
+from mj_manipulator.arms.ur5e import UR5E_HOME, UR5E_JOINT_NAMES
 from mj_manipulator.collision import CollisionChecker
 from mj_manipulator.grasp_manager import GraspManager
 
@@ -27,26 +29,14 @@ from mj_manipulator.grasp_manager import GraspManager
 # ---------------------------------------------------------------------------
 WORKSPACE = Path(__file__).resolve().parent.parent.parent  # robot-code/
 MENAGERIE = WORKSPACE / "mujoco_menagerie"
-
 UR5E_SCENE = MENAGERIE / "universal_robots_ur5e" / "scene.xml"
 FRANKA_SCENE = MENAGERIE / "franka_emika_panda" / "scene.xml"
 
 # ---------------------------------------------------------------------------
-# Robot definitions
+# Test configurations
 # ---------------------------------------------------------------------------
-UR5E_JOINTS = [
-    "shoulder_pan_joint",
-    "shoulder_lift_joint",
-    "elbow_joint",
-    "wrist_1_joint",
-    "wrist_2_joint",
-    "wrist_3_joint",
-]
-
-FRANKA_JOINTS = [f"joint{i}" for i in range(1, 8)]
-
 UR5E_CONFIGS = {
-    "home":        np.array([-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0]),
+    "home":        UR5E_HOME.copy(),
     "zeros":       np.zeros(6),
     "reach_front": np.array([0.0, -1.2, 1.0, -1.0, -1.5708, 0.0]),
     "reach_down":  np.array([0.0, 0.5, 0.0, 0.0, 0.0, 0.0]),
@@ -54,7 +44,7 @@ UR5E_CONFIGS = {
 }
 
 FRANKA_CONFIGS = {
-    "home":        np.array([0, 0, 0, -1.57079, 0, 1.57079, -0.7853]),
+    "home":        FRANKA_HOME.copy(),
     "zeros":       np.zeros(7),
     "reach_front": np.array([0.0, -0.3, 0.0, -2.0, 0.0, 1.7, -0.7]),
     "reach_right": np.array([1.5, 0.0, 0.0, -1.5, 0.0, 1.5, 0.0]),
@@ -119,14 +109,12 @@ def demo_simple(
 
     cc = CollisionChecker(model, data, joint_names)
 
-    # Show which bodies are detected as "arm"
     arm_names = sorted(
         mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i)
         for i in cc._arm_body_ids
     )
     print(f"\n  Arm bodies ({len(arm_names)}): {arm_names}")
 
-    # Check each configuration
     print(f"\n  {'Config':<15s}  {'Result':<12s}  {'Details'}")
     print(f"  {'-'*15}  {'-'*12}  {'-'*30}")
     for name, q in configs.items():
@@ -136,7 +124,6 @@ def demo_simple(
         q_str = np.array2string(q, precision=2, suppress_small=True)
         print(f"  {marker} {name:<14s}  {status:<12s}  q={q_str}")
 
-    # Batch check
     qs = np.array(list(configs.values()))
     results = cc.is_valid_batch(qs)
     n_valid = results.sum()
@@ -152,7 +139,6 @@ def demo_grasp_aware(
     q: np.ndarray,
     attach_body: str,
     label: str,
-    mug_offset: np.ndarray | None = None,
 ) -> None:
     """Show that gripper-object contacts are allowed when an object is grasped."""
     print_header(f"{label} - Grasp-Aware Mode")
@@ -160,7 +146,6 @@ def demo_grasp_aware(
     model = add_objects_to_scene(scene_path)
     data = mujoco.MjData(model)
 
-    # Set arm to config
     cc_tmp = CollisionChecker(model, data, joint_names)
     for i, idx in enumerate(cc_tmp.joint_indices):
         data.qpos[idx] = q[i]
@@ -172,9 +157,7 @@ def demo_grasp_aware(
     )
     attach_pos = data.xpos[attach_id].copy()
     attach_mat = data.xmat[attach_id].reshape(3, 3)
-    # Offset in body-local frame (default: along Z toward fingertips)
-    offset = mug_offset if mug_offset is not None else np.array([0, 0, 0.08])
-    mug_pos = attach_pos + attach_mat @ offset
+    mug_pos = attach_pos + attach_mat @ np.array([0, 0, 0.08])
 
     mug_body_id = mujoco.mj_name2id(
         model, mujoco.mjtObj.mjOBJ_BODY, "mug"
@@ -185,35 +168,28 @@ def demo_grasp_aware(
     data.qpos[mug_qadr + 3 : mug_qadr + 7] = [1, 0, 0, 0]
     mujoco.mj_forward(model, data)
 
-    # Create grasp-aware checker
     gm = GraspManager(model, data)
     cc = CollisionChecker(model, data, joint_names, grasp_manager=gm)
 
-    # --- Before grasp ---
+    # Before grasp
     valid_before = cc.is_valid(q)
-    print(f"\n  Mug placed at {attach_body} (pos={np.array2string(mug_pos, precision=3)})")
-    print(f"\n  Before grasp:")
-    print(f"    is_valid = {valid_before}")
+    print(f"\n  Mug at {attach_body} (pos={np.array2string(mug_pos, precision=3)})")
+    print(f"\n  Before grasp:  is_valid = {valid_before}")
     cc.debug_contacts(q)
 
-    # --- After grasp ---
+    # After grasp
     gm.mark_grasped("mug", label.lower())
     gm.attach_object("mug", attach_body)
-
     valid_after = cc.is_valid(q)
-    print(f"\n  After grasp (attached to '{attach_body}'):")
-    print(f"    is_valid = {valid_after}")
+    print(f"\n  After grasp:   is_valid = {valid_after}")
     cc.debug_contacts(q)
 
-    # --- After release ---
+    # After release
     gm.detach_object("mug")
     gm.mark_released("mug")
-
     valid_released = cc.is_valid(q)
-    print(f"\n  After release:")
-    print(f"    is_valid = {valid_released}")
+    print(f"\n  After release: is_valid = {valid_released}")
 
-    # Validate the transition
     if not valid_before and valid_after and not valid_released:
         print("\n  >> Grasp-aware filtering works correctly!")
     elif valid_before:
@@ -227,30 +203,17 @@ def demo_grasp_aware(
 def main() -> None:
     if not MENAGERIE.exists():
         print(f"ERROR: mujoco_menagerie not found at {MENAGERIE}")
-        print(
-            "Clone it:\n"
-            "  cd robot-code\n"
-            "  git clone https://github.com/google-deepmind/mujoco_menagerie"
-        )
         sys.exit(1)
 
-    for path in [UR5E_SCENE, FRANKA_SCENE]:
-        if not path.exists():
-            print(f"ERROR: {path} not found")
-            sys.exit(1)
+    # Simple collision checking
+    demo_simple(UR5E_SCENE, list(UR5E_JOINT_NAMES), UR5E_CONFIGS, "UR5e")
+    demo_simple(FRANKA_SCENE, list(FRANKA_JOINT_NAMES), FRANKA_CONFIGS, "Franka Panda")
 
-    # Part 1: Simple collision checking (same code, two different arms)
-    demo_simple(UR5E_SCENE, UR5E_JOINTS, UR5E_CONFIGS, "UR5e")
-    demo_simple(FRANKA_SCENE, FRANKA_JOINTS, FRANKA_CONFIGS, "Franka Panda")
-
-    # Part 2: Grasp-aware collision checking
-    # Franka has a proper gripper (hand + fingers), so grasp-aware filtering
-    # is meaningful. UR5e bare arm has no gripper — in practice you'd attach
-    # a Robotiq 2F-140 to get the same gripper-object filtering.
+    # Grasp-aware collision checking
     demo_grasp_aware(
         FRANKA_SCENE,
-        FRANKA_JOINTS,
-        q=np.array([0, 0, 0, -1.57079, 0, 1.57079, -0.7853]),
+        list(FRANKA_JOINT_NAMES),
+        q=FRANKA_HOME.copy(),
         attach_body="hand",
         label="Franka Panda",
     )

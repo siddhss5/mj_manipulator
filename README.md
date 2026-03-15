@@ -1,12 +1,15 @@
 # mj_manipulator
 
-Generic MuJoCo manipulator control framework. Plan trajectories, execute them, grasp/ungrasp objects, do cartesian teleop, and run joint-based or cartesian policies — for any robot arm.
+Generic MuJoCo manipulator control: planning, execution, grasping, and cartesian control for any robot arm.
 
 ## Supported Robots
 
-Works with any MuJoCo arm model. Tested with:
-- **UR5e** (6-DOF) via [geodude](https://github.com/siddhss5/geodude)
-- **Franka Emika Panda** (7-DOF) via [mujoco_menagerie](https://github.com/google-deepmind/mujoco_menagerie)
+Pre-built arm factories in `mj_manipulator.arms`:
+
+- **UR5e** (6-DOF) — `create_ur5e_arm(env)`
+- **Franka Emika Panda** (7-DOF) — `create_franka_arm(env)`
+
+Adding a new arm is straightforward — see `mj_manipulator/arms/__init__.py` for the recipe.
 
 ## Installation
 
@@ -25,52 +28,81 @@ uv run pytest tests/ -v
 ## Quick Start
 
 ```python
-from mj_manipulator import Arm, ArmConfig, KinematicLimits, GraspManager
+from mj_environment import Environment
+from mj_manipulator.arms.ur5e import create_ur5e_arm
 
-# Define your robot's config
-config = ArmConfig(
-    name="franka",
-    entity_type="arm",
-    joint_names=[f"panda/joint{i}" for i in range(1, 8)],
-    kinematic_limits=KinematicLimits(
-        velocity=np.array([2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61]),
-        acceleration=np.array([15.0, 7.5, 10.0, 12.5, 15.0, 20.0, 20.0]),
-    ),
-    ee_site="panda/attachment_site",
-    gripper_actuator="panda/fingers_actuator",
-    gripper_bodies=["panda/left_finger", "panda/right_finger"],
-    hand_type="franka_hand",
-)
+env = Environment("path/to/ur5e/scene.xml")
+arm = create_ur5e_arm(env)
 
-# Create arm (more components added in later phases)
-arm = Arm(env=env, config=config, grasp_manager=grasp_manager,
-          gripper=my_gripper, ik_solver=my_ik_solver, name="franka")
+# Plan to a joint configuration
+path = arm.plan_to_configuration(q_goal)
+
+# Plan to an end-effector pose (planner handles IK via TSRs)
+path = arm.plan_to_pose(target_pose)
+
+# Time-parameterize any path with TOPP-RA
+traj = arm.retime(path)
+print(f"Duration: {traj.duration:.2f}s, {len(traj.positions)} samples")
 ```
+
+For 7-DOF arms like Franka (menagerie model needs an EE site added):
+```python
+import mujoco
+from mj_manipulator.arms.franka import create_franka_arm, add_franka_ee_site
+
+spec = mujoco.MjSpec.from_file("path/to/franka/scene.xml")
+add_franka_ee_site(spec)
+# Save XML, create Environment, then:
+arm = create_franka_arm(env)
+```
+
+## Planning API
+
+All planning methods are thin pass-throughs to the underlying planner ([pycbirrt](https://github.com/siddhss5/pycbirrt)). If the planner supports a goal type natively, we delegate directly.
+
+| Method | Goal type | What the planner receives |
+|---|---|---|
+| `plan_to_configuration(q)` | Single config | `goal=q` |
+| `plan_to_configurations(qs)` | Multiple configs | `goal=qs` |
+| `plan_to_pose(pose)` | EE pose | `goal_tsrs=[point_tsr]` — planner does IK |
+| `plan_to_poses(poses)` | Multiple poses | `goal_tsrs=[point_tsr, ...]` — union |
+| `plan_to_tsrs(goal_tsrs)` | TSR regions | `goal_tsrs=goal_tsrs` |
+
+All methods accept optional `constraint_tsrs` for trajectory-wide path constraints, and `timeout` defaults come from `ArmConfig.planning_defaults`.
+
+Any path can be time-parameterized with `arm.retime(path)`, which uses TOPP-RA with the arm's kinematic limits.
+
+## IK Solver
+
+Uses [EAIK](https://github.com/Jonte-Raab/EAIK) for analytical inverse kinematics. The `MuJoCoEAIKSolver` extracts joint axes (H) and position offsets (P) directly from the MuJoCo model — no DH parameters or frame calibration needed.
+
+- **6-DOF** (e.g. UR5e): Direct analytical solve
+- **7-DOF** (e.g. Franka): Lock one joint, discretize over its range, solve 6-DOF IK at each value
 
 ## Architecture
 
 ```
 mj_environment  →  mj_manipulator  →  geodude (UR5e + Robotiq)
-                                    →  franka_control (future)
-                                    →  xarm_control (future)
+                        │
+                        ├── arms/          Arm factories + EAIK IK solver
+                        ├── arm.py         Generic Arm class
+                        ├── config.py      ArmConfig, KinematicLimits, PlanningDefaults
+                        ├── protocols.py   IKSolver, Gripper, ExecutionContext contracts
+                        ├── collision.py   Collision checking
+                        ├── trajectory.py  Trajectory + TOPP-RA retiming
+                        ├── executor.py    Kinematic/Physics executors
+                        ├── cartesian.py   Cartesian (twist) control
+                        └── grasp_manager.py  Grasp state tracking
 ```
 
-`mj_manipulator` provides the generic manipulation layer. Robot-specific packages provide:
-- Gripper implementations (Robotiq, Franka hand, etc.)
-- IK solver configuration (EAIK for UR5e, analytical for Franka)
-- Robot-specific configs (joint names, body lists, named poses)
+Robot-specific code (joint names, limits, IK config) lives in `arms/<robot>.py`. The generic layer (`Arm`, protocols, executors) knows nothing about specific robots.
 
-## Development Status
+## Demos
 
-This package is being extracted from [geodude](https://github.com/siddhss5/geodude). See the WIP PR for progress tracking.
+See [demos/README.md](demos/README.md) for runnable examples with real MuJoCo models.
 
-### Phases
-
-- [x] **Phase 1**: Data types (Trajectory, PlanResult, Config, Protocols)
-- [ ] **Phase 2**: Grasp management + collision checking
-- [ ] **Phase 3**: Executors + cartesian control
-- [ ] **Phase 4**: Arm class
-- [ ] **Phase 5**: Physics controller + execution context
-- [ ] **Phase 6**: Manipulation primitives (pickup/place)
-- [ ] **Phase 7**: Cleanup + geodude integration
-- [ ] **Phase 8**: Franka end-to-end validation
+```bash
+cd mj_manipulator
+uv run python demos/ik_solver.py       # EAIK analytical IK showcase
+uv run python demos/arm_planning.py    # Motion planning with CBiRRT
+```

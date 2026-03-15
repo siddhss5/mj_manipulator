@@ -19,8 +19,19 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
+from mj_environment import Environment
+from mj_manipulator.arms.franka import (
+    FRANKA_HOME,
+    FRANKA_VELOCITY_LIMITS,
+    add_franka_ee_site,
+    create_franka_arm,
+)
+from mj_manipulator.arms.ur5e import (
+    UR5E_HOME,
+    UR5E_VELOCITY_LIMITS,
+    create_ur5e_arm,
+)
 from mj_manipulator.cartesian import (
-    CartesianControlConfig,
     get_ee_jacobian,
     step_twist,
     twist_to_joint_velocity,
@@ -31,43 +42,8 @@ from mj_manipulator.cartesian import (
 # ---------------------------------------------------------------------------
 WORKSPACE = Path(__file__).resolve().parent.parent.parent  # robot-code/
 MENAGERIE = WORKSPACE / "mujoco_menagerie"
-
 UR5E_SCENE = MENAGERIE / "universal_robots_ur5e" / "scene.xml"
 FRANKA_SCENE = MENAGERIE / "franka_emika_panda" / "scene.xml"
-
-# ---------------------------------------------------------------------------
-# Robot definitions
-# ---------------------------------------------------------------------------
-UR5E_JOINTS = [
-    "shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
-    "wrist_1_joint", "wrist_2_joint", "wrist_3_joint",
-]
-UR5E_HOME = np.array([-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0])
-UR5E_VEL_LIMITS = np.array([2.094, 2.094, 3.14, 3.14, 3.14, 3.14])
-
-FRANKA_JOINTS = [f"joint{i}" for i in range(1, 8)]
-FRANKA_HOME = np.array([0, 0, 0, -1.57079, 0, 1.57079, -0.7853])
-FRANKA_VEL_LIMITS = np.array([2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61])
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-def setup_arm(scene_path, joint_names, home_config, ee_site_name):
-    """Load model, set to home, return (model, data, qpos_idx, qvel_idx, ee_id)."""
-    model = mujoco.MjModel.from_xml_path(str(scene_path))
-    data = mujoco.MjData(model)
-
-    qpos_idx, qvel_idx = [], []
-    for i, name in enumerate(joint_names):
-        jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
-        qpos_idx.append(model.jnt_qposadr[jid])
-        qvel_idx.append(model.jnt_dofadr[jid])
-        data.qpos[model.jnt_qposadr[jid]] = home_config[i]
-
-    ee_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, ee_site_name)
-    mujoco.mj_forward(model, data)
-    return model, data, qpos_idx, qvel_idx, ee_id
 
 
 def print_header(title):
@@ -79,16 +55,18 @@ def print_header(title):
 # ---------------------------------------------------------------------------
 # Demo 1: Jacobian analysis
 # ---------------------------------------------------------------------------
-def demo_jacobian(model, data, qvel_idx, ee_id, label, dof):
+def demo_jacobian(arm, label):
     """Analyze the Jacobian at current configuration."""
+    dof = arm.dof
     print_header(f"{label} - Jacobian Analysis ({dof}-DOF)")
 
-    J = get_ee_jacobian(model, data, ee_id, qvel_idx)
+    J = get_ee_jacobian(
+        arm.env.model, arm.env.data, arm.ee_site_id, arm.joint_qvel_indices,
+    )
     print(f"\n  Jacobian shape: {J.shape}")
     print(f"  Jacobian rank:  {np.linalg.matrix_rank(J, tol=1e-6)}")
     print(f"  Frobenius norm: {np.linalg.norm(J):.4f}")
 
-    # Singular values reveal manipulability
     sv = np.linalg.svd(J, compute_uv=False)
     print(f"  Singular values: {np.array2string(sv, precision=4)}")
     manipulability = float(np.prod(sv[:min(6, dof)]))
@@ -103,12 +81,15 @@ def demo_jacobian(model, data, qvel_idx, ee_id, label, dof):
 # ---------------------------------------------------------------------------
 # Demo 2: QP solver comparison
 # ---------------------------------------------------------------------------
-def demo_qp_solver(model, data, qpos_idx, qvel_idx, ee_id, vel_limits, label, dof):
+def demo_qp_solver(arm, vel_limits, label):
     """Compare QP solver results for different twists."""
+    dof = arm.dof
     print_header(f"{label} - QP Solver ({dof}-DOF)")
 
-    J = get_ee_jacobian(model, data, ee_id, qvel_idx)
-    q_current = np.array([data.qpos[i] for i in qpos_idx])
+    J = get_ee_jacobian(
+        arm.env.model, arm.env.data, arm.ee_site_id, arm.joint_qvel_indices,
+    )
+    q_current = arm.get_joint_positions()
     q_min = -np.ones(dof) * 6.28
     q_max = np.ones(dof) * 6.28
 
@@ -141,8 +122,13 @@ def demo_qp_solver(model, data, qpos_idx, qvel_idx, ee_id, vel_limits, label, do
 # ---------------------------------------------------------------------------
 # Demo 3: Multi-step trajectory via step_twist
 # ---------------------------------------------------------------------------
-def demo_step_twist(model, data, qpos_idx, qvel_idx, ee_id, vel_limits, label, dof):
+def demo_step_twist(arm, vel_limits, label):
     """Execute multiple twist steps and show EE motion."""
+    dof = arm.dof
+    model, data = arm.env.model, arm.env.data
+    ee_id = arm.ee_site_id
+    qpos_idx = arm.joint_qpos_indices
+    qvel_idx = arm.joint_qvel_indices
     print_header(f"{label} - Step Twist Trajectory ({dof}-DOF)")
 
     q_min = -np.ones(dof) * 6.28
@@ -157,7 +143,7 @@ def demo_step_twist(model, data, qpos_idx, qvel_idx, ee_id, vel_limits, label, d
     q_dot_prev = None
 
     fractions = []
-    for i in range(n_steps):
+    for _ in range(n_steps):
         q_new, result = step_twist(
             model, data, ee_id, qpos_idx, qvel_idx,
             q_min=q_min, q_max=q_max, qd_max=vel_limits,
@@ -165,11 +151,9 @@ def demo_step_twist(model, data, qpos_idx, qvel_idx, ee_id, vel_limits, label, d
         )
         q_dot_prev = result.joint_velocities
 
-        # Apply to model
         for j, idx in enumerate(qpos_idx):
             data.qpos[idx] = q_new[j]
         mujoco.mj_forward(model, data)
-
         fractions.append(result.achieved_fraction)
 
     ee_end = data.site_xpos[ee_id].copy()
@@ -187,31 +171,6 @@ def demo_step_twist(model, data, qpos_idx, qvel_idx, ee_id, vel_limits, label, d
     print(f"  Tracking:  {distance/expected*100:.1f}%")
     print(f"  Avg frac:  {np.mean(fractions):.3f}")
 
-    # Hand-frame demo
-    print(f"\n  --- Hand frame test ---")
-    # Reset to get consistent starting point
-    ee_before_hand = data.site_xpos[ee_id].copy()
-    twist_hand = np.array([0.05, 0, 0, 0, 0, 0])  # X in hand frame
-
-    R = data.site_xmat[ee_id].reshape(3, 3)
-    world_dir = R @ twist_hand[:3]
-    print(f"  Hand-frame X twist: {twist_hand[:3]}")
-    print(f"  Maps to world dir:  {np.array2string(world_dir, precision=4)}")
-
-    q_world, r_world = step_twist(
-        model, data, ee_id, qpos_idx, qvel_idx,
-        q_min=q_min, q_max=q_max, qd_max=vel_limits,
-        twist=twist_hand, frame="world", dt=dt,
-    )
-    q_hand, r_hand = step_twist(
-        model, data, ee_id, qpos_idx, qvel_idx,
-        q_min=q_min, q_max=q_max, qd_max=vel_limits,
-        twist=twist_hand, frame="hand", dt=dt,
-    )
-    q_diff = np.linalg.norm(q_world - q_hand)
-    print(f"  World vs hand frame joint diff: {q_diff:.6f}"
-          f" ({'different' if q_diff > 1e-6 else 'same'})")
-
 
 # ---------------------------------------------------------------------------
 # Main
@@ -219,44 +178,38 @@ def demo_step_twist(model, data, qpos_idx, qvel_idx, ee_id, vel_limits, label, d
 def main():
     if not MENAGERIE.exists():
         print(f"ERROR: mujoco_menagerie not found at {MENAGERIE}")
-        print(
-            "Clone it:\n"
-            "  cd robot-code\n"
-            "  git clone https://github.com/google-deepmind/mujoco_menagerie"
-        )
         sys.exit(1)
 
     # --- UR5e (6-DOF) ---
-    ur5e = setup_arm(UR5E_SCENE, UR5E_JOINTS, UR5E_HOME, "attachment_site")
-    model_u, data_u, qpos_u, qvel_u, ee_u = ur5e
+    ur5e_env = Environment(str(UR5E_SCENE))
+    ur5e_arm = create_ur5e_arm(ur5e_env, with_ik=False)
+    for i, idx in enumerate(ur5e_arm.joint_qpos_indices):
+        ur5e_env.data.qpos[idx] = UR5E_HOME[i]
+    mujoco.mj_forward(ur5e_env.model, ur5e_env.data)
 
-    demo_jacobian(model_u, data_u, qvel_u, ee_u, "UR5e", 6)
-    demo_qp_solver(model_u, data_u, qpos_u, qvel_u, ee_u, UR5E_VEL_LIMITS, "UR5e", 6)
-    demo_step_twist(model_u, data_u, qpos_u, qvel_u, ee_u, UR5E_VEL_LIMITS, "UR5e", 6)
+    demo_jacobian(ur5e_arm, "UR5e")
+    demo_qp_solver(ur5e_arm, UR5E_VELOCITY_LIMITS, "UR5e")
+    demo_step_twist(ur5e_arm, UR5E_VELOCITY_LIMITS, "UR5e")
 
     # --- Franka Panda (7-DOF) ---
-    # Franka doesn't have "attachment_site" — add one via MjSpec
     spec = mujoco.MjSpec.from_file(str(FRANKA_SCENE))
-    # Find hand body and add EE site
-    hand = spec.worldbody.find_child("hand")
-    site = hand.add_site()
-    site.name = "ee_site"
-    site.pos = [0, 0, 0.1034]  # Roughly at fingertip
-    model_f = spec.compile()
-    data_f = mujoco.MjData(model_f)
+    add_franka_ee_site(spec)
+    franka_dir = FRANKA_SCENE.parent
+    tmp_path = franka_dir / "_demo_franka_ee.xml"
+    try:
+        tmp_path.write_text(spec.to_xml())
+        franka_env = Environment(str(tmp_path))
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
-    qpos_f, qvel_f = [], []
-    for i, name in enumerate(FRANKA_JOINTS):
-        jid = mujoco.mj_name2id(model_f, mujoco.mjtObj.mjOBJ_JOINT, name)
-        qpos_f.append(model_f.jnt_qposadr[jid])
-        qvel_f.append(model_f.jnt_dofadr[jid])
-        data_f.qpos[model_f.jnt_qposadr[jid]] = FRANKA_HOME[i]
-    ee_f = mujoco.mj_name2id(model_f, mujoco.mjtObj.mjOBJ_SITE, "ee_site")
-    mujoco.mj_forward(model_f, data_f)
+    franka_arm = create_franka_arm(franka_env, with_ik=False)
+    for i, idx in enumerate(franka_arm.joint_qpos_indices):
+        franka_env.data.qpos[idx] = FRANKA_HOME[i]
+    mujoco.mj_forward(franka_env.model, franka_env.data)
 
-    demo_jacobian(model_f, data_f, qvel_f, ee_f, "Franka Panda", 7)
-    demo_qp_solver(model_f, data_f, qpos_f, qvel_f, ee_f, FRANKA_VEL_LIMITS, "Franka Panda", 7)
-    demo_step_twist(model_f, data_f, qpos_f, qvel_f, ee_f, FRANKA_VEL_LIMITS, "Franka Panda", 7)
+    demo_jacobian(franka_arm, "Franka Panda")
+    demo_qp_solver(franka_arm, FRANKA_VELOCITY_LIMITS, "Franka Panda")
+    demo_step_twist(franka_arm, FRANKA_VELOCITY_LIMITS, "Franka Panda")
 
     print_header(
         "DONE - Same Cartesian controller code\n"

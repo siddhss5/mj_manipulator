@@ -1,10 +1,10 @@
 # Demos
 
-Integration demos using real MuJoCo robot models (UR5e, Franka).
+Integration demos using real MuJoCo robot models (UR5e, Franka Panda).
 
 Unlike `tests/` (which are automated, mock-based, CI-friendly), these are
-standalone scripts that load real models, may open a viewer, and show the
-framework working end-to-end.
+standalone scripts that load real models and show the framework working
+end-to-end.
 
 ## Running
 
@@ -13,12 +13,11 @@ cd mj_manipulator
 uv run python demos/<script>.py
 ```
 
-## Demos by Phase
+## Available Demos
 
-| Script | Phase | What it shows |
-|---|---|---|
-| `collision_check.py` | 2 | Load UR5e + Franka, check collisions at various configs |
-| `plan_trajectory.py` | 4 | Plan + visualize trajectories for both robots |
-| `sim_context.py` | 5 | Execute trajectory, cartesian step, grasp/release with viewer |
-| `pickup_place.py` | 6 | Full pickup/place with both robots |
-| `franka_e2e.py` | 8 | End-to-end Franka: plan, execute, grasp, teleop, policy |
+| Script | What it shows |
+|---|---|
+| `ik_solver.py` | EAIK analytical IK: kinematic extraction from MuJoCo, multi-config IK with solution analysis, FK round-trip verification |
+| `arm_planning.py` | Motion planning with CBiRRT: plan to configuration, plan to pose (via TSRs), trajectory retiming with TOPP-RA |
+| `collision_check.py` | Collision checking: simple mode, grasp-aware mode, batch configuration validation |
+| `cartesian_control.py` | Cartesian velocity control: Jacobian analysis, QP-based twist-to-joint-velocity, multi-step trajectory following |

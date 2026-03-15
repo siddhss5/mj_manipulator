@@ -10,6 +10,7 @@ Robot-specific code (IK solvers, grippers) is injected via protocols.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from typing import TYPE_CHECKING
 
@@ -17,6 +18,7 @@ import mujoco
 import numpy as np
 
 from pycbirrt import CBiRRT, CBiRRTConfig
+from tsr import TSR
 
 from mj_manipulator.collision import CollisionChecker
 from mj_manipulator.config import ArmConfig
@@ -326,99 +328,108 @@ class Arm:
             config=config,
         )
 
+    def _make_planner_config(
+        self,
+        timeout: float | None,
+        planner_config: CBiRRTConfig | None,
+    ) -> CBiRRTConfig:
+        """Build a planner config from planning_defaults, with optional overrides."""
+        defaults = self.config.planning_defaults
+        if planner_config is not None:
+            if timeout is not None:
+                return dataclasses.replace(planner_config, timeout=timeout)
+            return planner_config
+        return CBiRRTConfig(
+            timeout=timeout if timeout is not None else defaults.timeout,
+            max_iterations=defaults.max_iterations,
+            step_size=defaults.step_size,
+            goal_bias=defaults.goal_bias,
+            smoothing_iterations=defaults.smoothing_iterations,
+        )
+
+    def _make_pose_tsr(self, pose: np.ndarray) -> TSR:
+        """Create a point TSR for an EE pose, encoding tcp_offset as Tw_e."""
+        Tw_e = self.config.tcp_offset if self.config.tcp_offset is not None else None
+        return TSR(T0_w=pose, Tw_e=Tw_e)
+
     def plan_to_configuration(
         self,
         q_goal: np.ndarray,
-        timeout: float = 30.0,
+        *,
+        constraint_tsrs: list[TSR] | None = None,
+        timeout: float | None = None,
         seed: int | None = None,
         planner_config: CBiRRTConfig | None = None,
     ) -> list[np.ndarray] | None:
         """Plan a collision-free path from current config to q_goal.
 
-        Forks the environment to preserve state during planning.
-
         Args:
             q_goal: Goal joint configuration.
-            timeout: Planning timeout in seconds.
+            constraint_tsrs: Path constraints (all must be satisfied).
+            timeout: Planning timeout in seconds (default from planning_defaults).
             seed: RNG seed for reproducibility.
             planner_config: Override planner configuration.
 
         Returns:
             List of waypoint configurations, or None if planning failed.
         """
-        if planner_config is None:
-            defaults = self.config.planning_defaults
-            planner_config = CBiRRTConfig(
-                timeout=timeout,
-                max_iterations=defaults.max_iterations,
-                step_size=defaults.step_size,
-                goal_bias=defaults.goal_bias,
-                smoothing_iterations=defaults.smoothing_iterations,
-            )
-        else:
-            planner_config.timeout = timeout
-
-        q_start = self.get_joint_positions()
-        planner = self.create_planner(planner_config)
-
-        path = planner.plan(start=q_start, goal=q_goal, seed=seed)
-        return path
+        config = self._make_planner_config(timeout, planner_config)
+        planner = self.create_planner(config)
+        return planner.plan(
+            start=self.get_joint_positions(),
+            goal=q_goal,
+            constraint_tsrs=constraint_tsrs,
+            seed=seed,
+        )
 
     def plan_to_configurations(
         self,
         q_goals: list[np.ndarray],
-        timeout: float = 30.0,
+        *,
+        constraint_tsrs: list[TSR] | None = None,
+        timeout: float | None = None,
         seed: int | None = None,
         planner_config: CBiRRTConfig | None = None,
     ) -> list[np.ndarray] | None:
         """Plan to the nearest reachable goal from a set of configurations.
 
-        The planner explores all goals simultaneously and returns the
-        shortest path to any of them.
-
         Args:
             q_goals: List of candidate goal configurations.
-            timeout: Planning timeout in seconds.
+            constraint_tsrs: Path constraints (all must be satisfied).
+            timeout: Planning timeout in seconds (default from planning_defaults).
             seed: RNG seed for reproducibility.
             planner_config: Override planner configuration.
 
         Returns:
             Path to nearest reachable goal, or None if all failed.
         """
-        if planner_config is None:
-            defaults = self.config.planning_defaults
-            planner_config = CBiRRTConfig(
-                timeout=timeout,
-                max_iterations=defaults.max_iterations,
-                step_size=defaults.step_size,
-                goal_bias=defaults.goal_bias,
-                smoothing_iterations=defaults.smoothing_iterations,
-            )
-        else:
-            planner_config.timeout = timeout
-
-        q_start = self.get_joint_positions()
-        planner = self.create_planner(planner_config)
-
-        path = planner.plan(start=q_start, goal=q_goals, seed=seed)
-        return path
+        config = self._make_planner_config(timeout, planner_config)
+        planner = self.create_planner(config)
+        return planner.plan(
+            start=self.get_joint_positions(),
+            goal=q_goals,
+            constraint_tsrs=constraint_tsrs,
+            seed=seed,
+        )
 
     def plan_to_tsrs(
         self,
-        tsrs: list,
-        constraint_tsrs: list | None = None,
-        timeout: float = 30.0,
+        goal_tsrs: list[TSR],
+        *,
+        constraint_tsrs: list[TSR] | None = None,
+        timeout: float | None = None,
         seed: int | None = None,
         planner_config: CBiRRTConfig | None = None,
     ) -> list[np.ndarray] | None:
         """Plan to a TSR-defined goal region.
 
-        Requires an IK solver to be configured (for TSR sampling).
+        The planner samples poses from the goal TSRs, solves IK
+        internally, and plans a collision-free path.
 
         Args:
-            tsrs: Goal TSRs (union — any is acceptable).
+            goal_tsrs: Goal TSRs (union — any is acceptable).
             constraint_tsrs: Path constraints (all must be satisfied).
-            timeout: Planning timeout in seconds.
+            timeout: Planning timeout in seconds (default from planning_defaults).
             seed: RNG seed for reproducibility.
             planner_config: Override planner configuration.
 
@@ -430,106 +441,104 @@ class Arm:
                 "plan_to_tsrs requires an IK solver. "
                 "Pass ik_solver= to the Arm constructor."
             )
-
-        if planner_config is None:
-            defaults = self.config.planning_defaults
-            planner_config = CBiRRTConfig(
-                timeout=timeout,
-                max_iterations=defaults.max_iterations,
-                step_size=defaults.step_size,
-                goal_bias=defaults.goal_bias,
-                smoothing_iterations=defaults.smoothing_iterations,
-            )
-        else:
-            planner_config.timeout = timeout
-
-        q_start = self.get_joint_positions()
-        planner = self.create_planner(planner_config)
-
-        path = planner.plan(
-            start=q_start,
-            goal_tsrs=tsrs,
+        config = self._make_planner_config(timeout, planner_config)
+        planner = self.create_planner(config)
+        return planner.plan(
+            start=self.get_joint_positions(),
+            goal_tsrs=goal_tsrs,
             constraint_tsrs=constraint_tsrs,
             seed=seed,
         )
-        return path
 
     def plan_to_pose(
         self,
         pose: np.ndarray,
-        timeout: float = 30.0,
+        *,
+        constraint_tsrs: list[TSR] | None = None,
+        timeout: float | None = None,
         seed: int | None = None,
         planner_config: CBiRRTConfig | None = None,
     ) -> list[np.ndarray] | None:
-        """Plan to an end-effector pose via IK + configuration planning.
+        """Plan to an end-effector pose.
 
-        Solves IK for the target pose, then plans to the nearest valid
-        IK solution.
+        Creates a point TSR from the pose and delegates to plan_to_tsrs.
+        The planner handles IK internally.
+
+        If tcp_offset is configured, pose should be the tool center point
+        pose (the offset is applied internally via the TSR). Otherwise,
+        pose is the EE site pose directly.
 
         Args:
-            pose: 4x4 target end-effector pose.
-            timeout: Planning timeout in seconds.
+            pose: 4x4 target pose (tcp frame if tcp_offset set, else EE site).
+            constraint_tsrs: Path constraints (all must be satisfied).
+            timeout: Planning timeout in seconds (default from planning_defaults).
             seed: RNG seed for reproducibility.
             planner_config: Override planner configuration.
 
         Returns:
-            Path to pose, or None if IK fails or planning fails.
+            Path to pose, or None if planning fails.
         """
-        if self.ik_solver is None:
-            raise RuntimeError(
-                "plan_to_pose requires an IK solver. "
-                "Pass ik_solver= to the Arm constructor."
-            )
-
-        # Apply inverse tcp_offset if configured
-        ik_target = pose
-        if self.config.tcp_offset is not None:
-            ik_target = pose @ np.linalg.inv(self.config.tcp_offset)
-
-        q_init = self.get_joint_positions()
-        solutions = self.ik_solver.solve_valid(ik_target, q_init=q_init)
-
-        if not solutions:
-            logger.warning("IK found no valid solutions for target pose")
-            return None
-
-        return self.plan_to_configurations(
-            q_goals=solutions,
+        return self.plan_to_tsrs(
+            goal_tsrs=[self._make_pose_tsr(pose)],
+            constraint_tsrs=constraint_tsrs,
             timeout=timeout,
             seed=seed,
             planner_config=planner_config,
         )
 
-    def plan_trajectory(
+    def plan_to_poses(
         self,
-        q_goal: np.ndarray,
-        timeout: float = 30.0,
+        poses: list[np.ndarray],
+        *,
+        constraint_tsrs: list[TSR] | None = None,
+        timeout: float | None = None,
         seed: int | None = None,
-        control_dt: float = 0.008,
         planner_config: CBiRRTConfig | None = None,
-    ) -> Trajectory | None:
-        """Plan and retime a trajectory to q_goal.
+    ) -> list[np.ndarray] | None:
+        """Plan to any of the given end-effector poses.
 
-        Convenience method that combines plan_to_configuration() with
-        Trajectory.from_path() for TOPP-RA retiming.
+        Creates a union of point TSRs and delegates to plan_to_tsrs.
+
+        If tcp_offset is configured, poses should be tool center point
+        poses (the offset is applied internally via the TSR). Otherwise,
+        poses are EE site poses directly.
 
         Args:
-            q_goal: Goal joint configuration.
-            timeout: Planning timeout in seconds.
+            poses: List of 4x4 target poses (tcp frame if tcp_offset set, else EE site).
+            constraint_tsrs: Path constraints (all must be satisfied).
+            timeout: Planning timeout in seconds (default from planning_defaults).
             seed: RNG seed for reproducibility.
-            control_dt: Control timestep for trajectory sampling.
             planner_config: Override planner configuration.
 
         Returns:
-            Time-optimal Trajectory, or None if planning failed.
+            Path to nearest reachable pose, or None if planning fails.
         """
-        path = self.plan_to_configuration(
-            q_goal, timeout=timeout, seed=seed,
+        return self.plan_to_tsrs(
+            goal_tsrs=[self._make_pose_tsr(p) for p in poses],
+            constraint_tsrs=constraint_tsrs,
+            timeout=timeout,
+            seed=seed,
             planner_config=planner_config,
         )
-        if path is None:
-            return None
 
+    def retime(
+        self,
+        path: list[np.ndarray],
+        *,
+        control_dt: float = 0.008,
+    ) -> Trajectory:
+        """Time-parameterize a path using TOPP-RA.
+
+        Converts a geometric path (from any plan_to_* method) into a
+        time-optimal trajectory respecting the arm's kinematic limits.
+
+        Args:
+            path: List of waypoint configurations from a planner.
+            control_dt: Control timestep for trajectory sampling (default 125 Hz).
+
+        Returns:
+            Time-optimal Trajectory with positions, velocities, and accelerations.
+        """
         limits = self.config.kinematic_limits
         return Trajectory.from_path(
             path=path,
