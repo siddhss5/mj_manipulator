@@ -32,6 +32,9 @@ from mj_manipulator.config import ArmConfig, KinematicLimits
 if TYPE_CHECKING:
     from mj_environment import Environment
 
+    from mj_manipulator.grasp_manager import GraspManager
+    from mj_manipulator.protocols import Gripper
+
 # ---------------------------------------------------------------------------
 # Franka constants
 # ---------------------------------------------------------------------------
@@ -94,6 +97,8 @@ def create_franka_arm(
     with_ik: bool = True,
     n_discretizations: int = 16,
     tcp_offset: np.ndarray | None = None,
+    gripper: Gripper | None = None,
+    grasp_manager: GraspManager | None = None,
 ) -> Arm:
     """Create a fully configured Arm for the Franka Panda.
 
@@ -103,6 +108,8 @@ def create_franka_arm(
         with_ik: If True, configure EAIK IK solver with joint-5 discretization.
         n_discretizations: Number of joint-5 values to sample for IK.
         tcp_offset: Optional 4x4 transform from ee_site to tool center point.
+        gripper: Optional gripper implementation (e.g., FrankaGripper).
+        grasp_manager: Optional grasp state tracker.
 
     Returns:
         Arm instance with IK solver, planning, and state queries ready to use.
@@ -141,6 +148,6 @@ def create_franka_arm(
             n_discretizations=n_discretizations,
         )
 
-        return Arm(env, config, ik_solver=ik_solver)
+        return Arm(env, config, ik_solver=ik_solver, gripper=gripper, grasp_manager=grasp_manager)
 
-    return Arm(env, config)
+    return Arm(env, config, gripper=gripper, grasp_manager=grasp_manager)

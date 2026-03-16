@@ -24,6 +24,9 @@ from mj_manipulator.config import ArmConfig, KinematicLimits
 if TYPE_CHECKING:
     from mj_environment import Environment
 
+    from mj_manipulator.grasp_manager import GraspManager
+    from mj_manipulator.protocols import Gripper
+
 # ---------------------------------------------------------------------------
 # UR5e constants
 # ---------------------------------------------------------------------------
@@ -57,6 +60,8 @@ def create_ur5e_arm(
     ee_site: str = UR5E_EE_SITE,
     with_ik: bool = True,
     tcp_offset: np.ndarray | None = None,
+    gripper: Gripper | None = None,
+    grasp_manager: GraspManager | None = None,
 ) -> Arm:
     """Create a fully configured Arm for the UR5e.
 
@@ -65,6 +70,8 @@ def create_ur5e_arm(
         ee_site: Name of the end-effector site in the model.
         with_ik: If True, configure EAIK analytical IK solver.
         tcp_offset: Optional 4x4 transform from ee_site to tool center point.
+        gripper: Optional gripper implementation (e.g., RobotiqGripper).
+        grasp_manager: Optional grasp state tracker.
 
     Returns:
         Arm instance with IK solver, planning, and state queries ready to use.
@@ -101,6 +108,6 @@ def create_ur5e_arm(
             joint_limits=joint_limits,
         )
 
-        return Arm(env, config, ik_solver=ik_solver)
+        return Arm(env, config, ik_solver=ik_solver, gripper=gripper, grasp_manager=grasp_manager)
 
-    return Arm(env, config)
+    return Arm(env, config, gripper=gripper, grasp_manager=grasp_manager)
