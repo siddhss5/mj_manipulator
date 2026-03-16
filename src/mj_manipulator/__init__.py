@@ -45,6 +45,7 @@ from mj_manipulator.executor import KinematicExecutor, PhysicsExecutor
 from mj_manipulator.grasp_manager import GraspManager, detect_grasped_object
 from mj_manipulator.grippers import FrankaGripper, RobotiqGripper
 from mj_manipulator.physics_controller import ArmPhysicsExecutor, PhysicsController
+from mj_manipulator.primitives import pickup, place
 from mj_manipulator.sim_context import SimArmController, SimContext
 from mj_manipulator.trajectory import Trajectory, create_linear_trajectory
 
@@ -78,6 +79,9 @@ __all__ = [
     # Physics controller (simulation)
     "PhysicsController",
     "ArmPhysicsExecutor",
+    # Primitives
+    "pickup",
+    "place",
     # Simulation context
     "SimContext",
     "SimArmController",
