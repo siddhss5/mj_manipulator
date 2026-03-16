@@ -1,9 +1,8 @@
 """Tests for KinematicExecutor and PhysicsExecutor.
 
-Uses a minimal inline MuJoCo model with a 2-DOF arm and actuators.
+Uses shared test fixtures from conftest.py (model_and_data, joint_qpos_indices, actuator_ids).
 """
 
-import mujoco
 import numpy as np
 import pytest
 
@@ -11,68 +10,7 @@ from mj_manipulator.executor import KinematicExecutor, PhysicsExecutor
 from mj_manipulator.grasp_manager import GraspManager
 from mj_manipulator.trajectory import Trajectory
 
-# Minimal model: 2-joint arm with actuators
-_ARM_XML = """
-<mujoco model="test_executor">
-  <option timestep="0.002"/>
-  <worldbody>
-    <body name="link1" pos="0 0 0.5">
-      <joint name="joint1" type="hinge" axis="0 0 1"/>
-      <geom type="capsule" size="0.04" fromto="0 0 0 0.3 0 0"/>
-      <body name="link2" pos="0.3 0 0">
-        <joint name="joint2" type="hinge" axis="0 0 1"/>
-        <geom type="capsule" size="0.04" fromto="0 0 0 0.3 0 0"/>
-      </body>
-    </body>
-    <body name="box" pos="0.5 0 0.5">
-      <joint name="box_free" type="free"/>
-      <geom type="box" size="0.03 0.03 0.03"/>
-    </body>
-  </worldbody>
-  <actuator>
-    <position name="act1" joint="joint1" kp="100"/>
-    <position name="act2" joint="joint2" kp="100"/>
-  </actuator>
-</mujoco>
-"""
-
-
-@pytest.fixture
-def model_and_data():
-    model = mujoco.MjModel.from_xml_string(_ARM_XML)
-    data = mujoco.MjData(model)
-    mujoco.mj_forward(model, data)
-    return model, data
-
-
-@pytest.fixture
-def joint_qpos_indices(model_and_data):
-    model, _ = model_and_data
-    indices = []
-    for name in ["joint1", "joint2"]:
-        jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
-        indices.append(model.jnt_qposadr[jid])
-    return indices
-
-
-@pytest.fixture
-def actuator_ids(model_and_data):
-    model, _ = model_and_data
-    return [
-        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "act1"),
-        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "act2"),
-    ]
-
-
-def _make_trajectory(positions: np.ndarray) -> Trajectory:
-    """Helper to create a trajectory from positions array."""
-    return Trajectory(
-        timestamps=np.linspace(0, 1, len(positions)),
-        positions=positions,
-        velocities=np.zeros_like(positions),
-        accelerations=np.zeros_like(positions),
-        joint_names=["joint1", "joint2"],
-    )
+from conftest import make_trajectory
 
 
 class TestKinematicExecutor:
@@ -92,7 +30,7 @@ class TestKinematicExecutor:
             [0.2, 0.2],
             [0.3, 0.3],
         ])
-        traj = _make_trajectory(positions)
+        traj = make_trajectory(positions)
         result = ex.execute(traj)
         assert result is True
 
@@ -191,7 +129,7 @@ class TestPhysicsExecutor:
             [0.1, 0.1],
             [0.2, 0.2],
         ])
-        traj = _make_trajectory(positions)
+        traj = make_trajectory(positions)
         result = ex.execute(traj)
         assert result is True
 
