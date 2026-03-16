@@ -43,6 +43,8 @@ from mj_manipulator.cartesian import (
 from mj_manipulator.collision import CollisionChecker
 from mj_manipulator.executor import KinematicExecutor, PhysicsExecutor
 from mj_manipulator.grasp_manager import GraspManager, detect_grasped_object
+from mj_manipulator.physics_controller import ArmPhysicsExecutor, PhysicsController
+from mj_manipulator.sim_context import SimArmController, SimContext
 from mj_manipulator.trajectory import Trajectory, create_linear_trajectory
 
 __all__ = [
@@ -69,6 +71,12 @@ __all__ = [
     # Executors
     "KinematicExecutor",
     "PhysicsExecutor",
+    # Physics controller (simulation)
+    "PhysicsController",
+    "ArmPhysicsExecutor",
+    # Simulation context
+    "SimContext",
+    "SimArmController",
     # Cartesian control
     "CartesianControlConfig",
     "TwistStepResult",

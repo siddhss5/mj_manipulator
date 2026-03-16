@@ -21,3 +21,4 @@ uv run python demos/<script>.py
 | `arm_planning.py` | Motion planning with CBiRRT: plan to configuration, plan to pose (via TSRs), trajectory retiming with TOPP-RA |
 | `collision_check.py` | Collision checking: simple mode, grasp-aware mode, batch configuration validation |
 | `cartesian_control.py` | Cartesian velocity control: Jacobian analysis, QP-based twist-to-joint-velocity, multi-step trajectory following |
+| `sim_context.py` | SimContext execution layer: batch trajectory execution, streaming joint control, streaming cartesian control — physics and kinematic modes |

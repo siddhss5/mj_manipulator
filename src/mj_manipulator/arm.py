@@ -185,10 +185,15 @@ class Arm:
             self.ee_site_id = -1
 
         # Resolve actuator IDs (actuators whose transmission targets our joints)
+        # Filter by trntype to exclude tendon/site actuators whose trnid
+        # could collide with joint IDs (e.g. Franka gripper tendon actuator).
         self.actuator_ids: list[int] = []
         joint_id_set = set(self.joint_ids)
         for act_id in range(model.nu):
-            if model.actuator_trnid[act_id, 0] in joint_id_set:
+            trntype = model.actuator_trntype[act_id]
+            if trntype == mujoco.mjtTrn.mjTRN_JOINT and (
+                model.actuator_trnid[act_id, 0] in joint_id_set
+            ):
                 self.actuator_ids.append(act_id)
 
         # Cache DOF and joint limits
