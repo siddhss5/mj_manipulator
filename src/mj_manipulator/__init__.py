@@ -33,6 +33,7 @@ from mj_manipulator.protocols import (
 )
 from mj_manipulator.cartesian import (
     CartesianControlConfig,
+    CartesianController,
     MoveUntilTouchResult,
     TwistExecutionResult,
     TwistStepResult,
@@ -82,6 +83,7 @@ __all__ = [
     "SimContext",
     "SimArmController",
     # Cartesian control
+    "CartesianController",
     "CartesianControlConfig",
     "TwistStepResult",
     "MoveUntilTouchResult",

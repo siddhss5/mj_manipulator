@@ -247,6 +247,49 @@ else:
 - Warm starting works perfectly
 - No bookkeeping: projection handles active constraints implicitly
 
+## API
+
+### `CartesianController` (recommended)
+
+`CartesianController` wraps the functions below with warm-start state and higher-level motion primitives:
+
+```python
+from mj_manipulator import CartesianController
+
+controller = CartesianController.from_arm(arm)   # or pass model/data directly
+
+# Teleop: one call per control cycle; writes to data.qpos
+result = controller.step(twist, dt=0.008)
+
+# Constant-twist motion: approach 5 cm along -z
+result = controller.move(
+    twist=np.array([0, 0, -0.05, 0, 0, 0]),
+    dt=0.008,
+    max_distance=0.05,
+    stop_condition=lambda: checker.is_arm_in_collision(),
+)
+
+# Pose tracking: move to a target 4x4 pose
+result = controller.move_to(target_pose, dt=0.008, speed=0.05)
+```
+
+`controller.reset()` clears warm-start state between distinct motions.
+
+### Low-Level Functions
+
+For direct use without an `Arm` object:
+
+```python
+from mj_manipulator.cartesian import twist_to_joint_velocity, step_twist
+
+# Core QP solver (returns joint velocities)
+result = twist_to_joint_velocity(J, twist, q_current, q_min, q_max, qd_max, dt)
+
+# One step: compute velocities + integrate (returns new qpos, TwistStepResult)
+q_new, result = step_twist(model, data, ee_site_id, qpos_indices, qvel_indices,
+                            q_min, q_max, qd_max, twist, dt=dt)
+```
+
 ## Diagnostics: Knowing When You're Constrained
 
 The solver reports why motion was limited via `TwistStepResult`:

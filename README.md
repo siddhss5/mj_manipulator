@@ -90,14 +90,24 @@ min  ½ ‖J q̇ − v_d‖²_W + (λ/2)‖q̇‖²    s.t.  ℓ ≤ q̇ ≤ u
 The bounds `ℓ`, `u` encode both velocity limits and position limits converted to velocity constraints, so joint limits are never violated. Singularities are handled implicitly by the damping term `λI`.
 
 ```python
-from mj_manipulator.cartesian import CartesianController, CartesianControlConfig
+from mj_manipulator import CartesianController
 
-controller = CartesianController(arm, config=CartesianControlConfig())
+controller = CartesianController.from_arm(arm)
 
-# Move 5 cm/s in +x
+# Teleop: call from your 125 Hz control loop
 result = controller.step(twist=np.array([0.05, 0, 0, 0, 0, 0]), dt=0.008)
 print(result.achieved_fraction)   # 1.0 = full twist achieved
 print(result.limiting_factor)     # None / "joint_limit" / "velocity"
+
+# Small Cartesian plans: approach 5 cm along -z, stop on contact
+result = controller.move(
+    twist=np.array([0, 0, -0.05, 0, 0, 0]),
+    dt=0.008, max_distance=0.05,
+    stop_condition=lambda: checker.is_arm_in_collision(),
+)
+
+# Move to a target pose
+result = controller.move_to(target_pose, dt=0.008, speed=0.05)
 ```
 
 See [docs/cartesian-control.md](docs/cartesian-control.md) for the full derivation including twist weighting, projected gradient descent solver, convergence analysis, and comparison with MoveIt Servo.

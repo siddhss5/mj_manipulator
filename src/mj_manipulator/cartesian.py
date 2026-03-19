@@ -15,14 +15,18 @@ parameters rather than an ``Arm`` object, so they work with any robot.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import mujoco
 import numpy as np
 from scipy.linalg import cho_factor, cho_solve
 
 from mj_manipulator.contacts import iter_contacts
+
+if TYPE_CHECKING:
+    from mj_manipulator.arm import Arm
 
 logger = logging.getLogger(__name__)
 
@@ -417,6 +421,305 @@ def check_arm_contact(
             return mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom1)
 
     return None
+
+
+# =============================================================================
+# CartesianController (stateful — wraps step_twist with warm-start state)
+# =============================================================================
+
+
+def _rotation_error_axis_angle(R_target: np.ndarray, R_current: np.ndarray) -> np.ndarray:
+    """Rotation error as an axis-angle vector (magnitude = angle in radians)."""
+    R_err = R_target @ R_current.T
+    angle = np.arccos(np.clip((np.trace(R_err) - 1.0) / 2.0, -1.0, 1.0))
+    if angle < 1e-8:
+        return np.zeros(3)
+    skew_factor = angle / (2.0 * np.sin(angle))
+    return skew_factor * np.array([
+        R_err[2, 1] - R_err[1, 2],
+        R_err[0, 2] - R_err[2, 0],
+        R_err[1, 0] - R_err[0, 1],
+    ])
+
+
+class CartesianController:
+    """Stateful Cartesian velocity controller.
+
+    Wraps ``step_twist`` with warm-start state and provides higher-level
+    motion primitives for teleop and small Cartesian plans.
+
+    Usage — teleop (call from your control loop)::
+
+        controller = CartesianController.from_arm(arm)
+        # in your 125 Hz loop:
+        result = controller.step(twist, dt=0.008)
+
+    Usage — scripted Cartesian motion::
+
+        result = controller.move(
+            twist=np.array([0, 0, -0.05, 0, 0, 0]),
+            dt=0.008, max_distance=0.05,
+        )
+        result = controller.move_to(target_pose, dt=0.008, speed=0.05)
+
+    See ``docs/cartesian-control.md`` for the underlying QP formulation.
+    """
+
+    def __init__(
+        self,
+        model: mujoco.MjModel,
+        data: mujoco.MjData,
+        ee_site_id: int,
+        joint_qpos_indices: list[int],
+        joint_qvel_indices: list[int],
+        q_min: np.ndarray,
+        q_max: np.ndarray,
+        qd_max: np.ndarray,
+        config: CartesianControlConfig | None = None,
+    ):
+        """
+        Args:
+            model: MuJoCo model.
+            data: Live MuJoCo data — controller reads state and writes qpos.
+            ee_site_id: Site ID for end-effector.
+            joint_qpos_indices: Indices into qpos for arm joints.
+            joint_qvel_indices: Indices into qvel for arm joints.
+            q_min: Lower joint position limits (rad).
+            q_max: Upper joint position limits (rad).
+            qd_max: Maximum joint velocities (rad/s).
+            config: Control configuration (uses defaults if None).
+        """
+        self.model = model
+        self.data = data
+        self.ee_site_id = ee_site_id
+        self.joint_qpos_indices = joint_qpos_indices
+        self.joint_qvel_indices = joint_qvel_indices
+        self.q_min = q_min
+        self.q_max = q_max
+        self.qd_max = qd_max
+        self.config = config or CartesianControlConfig()
+        self._q_dot_prev: np.ndarray | None = None
+
+    @classmethod
+    def from_arm(
+        cls,
+        arm: "Arm",
+        config: CartesianControlConfig | None = None,
+    ) -> "CartesianController":
+        """Create a CartesianController from an Arm instance."""
+        q_min, q_max = arm.get_joint_limits()
+        return cls(
+            model=arm.env.model,
+            data=arm.env.data,
+            ee_site_id=arm.ee_site_id,
+            joint_qpos_indices=list(arm.joint_qpos_indices),
+            joint_qvel_indices=list(arm.joint_qvel_indices),
+            q_min=q_min,
+            q_max=q_max,
+            qd_max=arm.config.kinematic_limits.velocity,
+            config=config,
+        )
+
+    def reset(self) -> None:
+        """Clear warm-start state. Call before starting a new motion."""
+        self._q_dot_prev = None
+
+    def step(
+        self,
+        twist: np.ndarray,
+        dt: float,
+        frame: str = "world",
+    ) -> TwistStepResult:
+        """Execute one Cartesian control step.
+
+        Computes joint velocities to achieve the desired twist, writes new
+        joint positions to ``data.qpos``, and updates warm-start state.
+
+        For teleop: call this once per control cycle from your loop. The
+        simulator (``mj_forward`` / ``mj_step``) handles kinematics update.
+
+        Args:
+            twist: 6D desired twist [vx, vy, vz, wx, wy, wz].
+            dt: Control timestep (seconds).
+            frame: ``"world"`` or ``"hand"`` — frame for twist interpretation.
+
+        Returns:
+            TwistStepResult with joint velocities and diagnostics.
+        """
+        q_new, result = step_twist(
+            model=self.model,
+            data=self.data,
+            ee_site_id=self.ee_site_id,
+            joint_qpos_indices=self.joint_qpos_indices,
+            joint_qvel_indices=self.joint_qvel_indices,
+            q_min=self.q_min,
+            q_max=self.q_max,
+            qd_max=self.qd_max,
+            twist=twist,
+            frame=frame,
+            dt=dt,
+            config=self.config,
+            q_dot_prev=self._q_dot_prev,
+        )
+        self._q_dot_prev = result.joint_velocities
+        for i, idx in enumerate(self.joint_qpos_indices):
+            self.data.qpos[idx] = q_new[i]
+        return result
+
+    def move(
+        self,
+        twist: np.ndarray,
+        dt: float,
+        *,
+        max_duration: float = 5.0,
+        max_distance: float | None = None,
+        stop_condition: Callable[[], bool] | None = None,
+        step_fn: Callable[[], None] | None = None,
+    ) -> TwistExecutionResult:
+        """Execute a constant twist until a stop condition is met.
+
+        Runs an internal loop calling ``step()`` until ``max_duration``
+        elapses, ``max_distance`` is reached, ``stop_condition`` returns
+        True, or ``achieved_fraction`` drops below ``config.min_progress``.
+
+        Useful for scripted Cartesian motions: approach, retreat, sweep.
+
+        Args:
+            twist: 6D desired twist [vx, vy, vz, wx, wy, wz].
+            dt: Control timestep (seconds).
+            max_duration: Stop after this many seconds.
+            max_distance: Stop after EE moves this far (meters).
+            stop_condition: Callable returning True to stop early.
+            step_fn: Advance simulation after each step. Defaults to
+                ``mj_forward`` for kinematic simulation.
+
+        Returns:
+            TwistExecutionResult describing why motion terminated.
+        """
+        if step_fn is None:
+            def step_fn():
+                mujoco.mj_forward(self.model, self.data)
+
+        self.reset()
+
+        t = 0.0
+        distance = 0.0
+        last_pos = self.data.site_xpos[self.ee_site_id].copy()
+        terminated_by: Literal["duration", "distance", "condition", "no_progress"] = "duration"
+
+        while t < max_duration:
+            if stop_condition is not None and stop_condition():
+                terminated_by = "condition"
+                break
+
+            result = self.step(twist, dt)
+            step_fn()
+
+            current_pos = self.data.site_xpos[self.ee_site_id].copy()
+            distance += float(np.linalg.norm(current_pos - last_pos))
+            last_pos = current_pos
+            t += dt
+
+            if result.achieved_fraction < self.config.min_progress:
+                terminated_by = "no_progress"
+                break
+
+            if max_distance is not None and distance >= max_distance:
+                terminated_by = "distance"
+                break
+
+        return TwistExecutionResult(
+            terminated_by=terminated_by,
+            distance_moved=distance,
+            duration=t,
+            final_pose=self._get_ee_pose(),
+        )
+
+    def move_to(
+        self,
+        target_pose: np.ndarray,
+        dt: float,
+        *,
+        max_duration: float = 10.0,
+        speed: float = 0.05,
+        position_tol: float = 0.005,
+        rotation_tol: float = 0.05,
+        step_fn: Callable[[], None] | None = None,
+    ) -> TwistExecutionResult:
+        """Move end-effector to a target pose.
+
+        Generates a twist proportional to the pose error and steps until
+        within tolerance or ``max_duration`` elapses.
+
+        Args:
+            target_pose: 4x4 target pose matrix (world frame).
+            dt: Control timestep (seconds).
+            max_duration: Stop after this many seconds.
+            speed: Maximum linear speed (m/s). Angular speed is bounded
+                proportionally at ``speed / config.length_scale`` (rad/s).
+            position_tol: Convergence threshold for position (meters).
+            rotation_tol: Convergence threshold for rotation (radians).
+            step_fn: Advance simulation after each step. Defaults to
+                ``mj_forward`` for kinematic simulation.
+
+        Returns:
+            TwistExecutionResult. ``terminated_by == "condition"`` means
+            the target was reached within tolerance.
+        """
+        if step_fn is None:
+            def step_fn():
+                mujoco.mj_forward(self.model, self.data)
+
+        self.reset()
+
+        t = 0.0
+        distance = 0.0
+        last_pos = self.data.site_xpos[self.ee_site_id].copy()
+        max_omega = speed / self.config.length_scale
+        terminated_by: Literal["duration", "distance", "condition", "no_progress"] = "duration"
+
+        while t < max_duration:
+            current_pos = self.data.site_xpos[self.ee_site_id].copy()
+            current_R = self.data.site_xmat[self.ee_site_id].reshape(3, 3)
+
+            pos_err = target_pose[:3, 3] - current_pos
+            omega = _rotation_error_axis_angle(target_pose[:3, :3], current_R)
+
+            pos_err_norm = float(np.linalg.norm(pos_err))
+            rot_err_norm = float(np.linalg.norm(omega))
+
+            if pos_err_norm < position_tol and rot_err_norm < rotation_tol:
+                terminated_by = "condition"
+                break
+
+            v = pos_err * min(1.0, speed / (pos_err_norm + 1e-8))
+            w = omega * min(1.0, max_omega / (rot_err_norm + 1e-8))
+            twist = np.concatenate([v, w])
+
+            result = self.step(twist, dt)
+            step_fn()
+
+            current_pos = self.data.site_xpos[self.ee_site_id].copy()
+            distance += float(np.linalg.norm(current_pos - last_pos))
+            last_pos = current_pos
+            t += dt
+
+            if result.achieved_fraction < self.config.min_progress:
+                terminated_by = "no_progress"
+                break
+
+        return TwistExecutionResult(
+            terminated_by=terminated_by,
+            distance_moved=distance,
+            duration=t,
+            final_pose=self._get_ee_pose(),
+        )
+
+    def _get_ee_pose(self) -> np.ndarray:
+        T = np.eye(4)
+        T[:3, :3] = self.data.site_xmat[self.ee_site_id].reshape(3, 3)
+        T[:3, 3] = self.data.site_xpos[self.ee_site_id]
+        return T
 
 
 def check_arm_contact_after_move(

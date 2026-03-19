@@ -10,6 +10,7 @@ import pytest
 
 from mj_manipulator.cartesian import (
     CartesianControlConfig,
+    CartesianController,
     TwistStepResult,
     check_arm_contact,
     check_arm_contact_after_move,
@@ -449,3 +450,112 @@ class TestWithRealModels:
         )
         assert result.joint_velocities.shape == (7,)
         assert result.achieved_fraction > 0.5
+
+
+class TestCartesianController:
+    """Tests for CartesianController class."""
+
+    @pytest.fixture
+    def controller(self, model_and_data, arm_indices):
+        model, data = model_and_data
+        qpos_idx, qvel_idx, ee_id = arm_indices
+        q_min = np.array([-3.14, -3.14])
+        q_max = np.array([3.14, 3.14])
+        qd_max = np.array([2.0, 2.0])
+        return CartesianController(
+            model, data, ee_id, qpos_idx, qvel_idx, q_min, q_max, qd_max
+        )
+
+    def test_step_returns_result(self, controller):
+        result = controller.step(twist=np.array([0.05, 0, 0, 0, 0, 0]), dt=0.004)
+        assert isinstance(result, TwistStepResult)
+        assert result.joint_velocities.shape == (2,)
+        assert 0.0 <= result.achieved_fraction <= 1.0
+
+    def test_step_applies_to_qpos(self, model_and_data, controller):
+        # joint1 (z-axis) can achieve y linear velocity; x is unreachable
+        model, data = model_and_data
+        q_before = data.qpos.copy()
+        controller.step(twist=np.array([0, 0.05, 0, 0, 0, 0]), dt=0.004)
+        assert not np.allclose(data.qpos, q_before)
+
+    def test_reset_clears_warm_start(self, controller):
+        controller.step(twist=np.array([0.05, 0, 0, 0, 0, 0]), dt=0.004)
+        assert controller._q_dot_prev is not None
+        controller.reset()
+        assert controller._q_dot_prev is None
+
+    def test_move_terminates_by_distance(self, model_and_data, arm_indices):
+        # Large L reduces angular cost so joint1 can achieve y-velocity
+        model, data = model_and_data
+        qpos_idx, qvel_idx, ee_id = arm_indices
+        controller = CartesianController(
+            model, data, ee_id, qpos_idx, qvel_idx,
+            q_min=np.array([-3.14, -3.14]), q_max=np.array([3.14, 3.14]),
+            qd_max=np.array([2.0, 2.0]),
+            config=CartesianControlConfig(length_scale=10.0, min_progress=0.0),
+        )
+        result = controller.move(
+            twist=np.array([0, 0.05, 0, 0, 0, 0]),
+            dt=0.004,
+            max_distance=0.01,
+        )
+        assert result.terminated_by == "distance"
+        assert result.distance_moved >= 0.01
+
+    def test_move_terminates_by_duration(self, controller):
+        result = controller.move(
+            twist=np.array([0.0, 0, 0, 0, 0, 0]),  # zero twist = no progress
+            dt=0.004,
+            max_duration=0.02,
+        )
+        # Zero twist hits min_progress threshold or duration
+        assert result.terminated_by in ("duration", "no_progress")
+
+    def test_move_terminates_by_condition(self, model_and_data, arm_indices):
+        model, data = model_and_data
+        qpos_idx, qvel_idx, ee_id = arm_indices
+        controller = CartesianController(
+            model, data, ee_id, qpos_idx, qvel_idx,
+            q_min=np.array([-3.14, -3.14]), q_max=np.array([3.14, 3.14]),
+            qd_max=np.array([2.0, 2.0]),
+            config=CartesianControlConfig(min_progress=0.0),
+        )
+        called = [0]
+
+        def stop():
+            called[0] += 1
+            return called[0] >= 3
+
+        result = controller.move(
+            twist=np.array([0, 0.05, 0, 0, 0, 0]),
+            dt=0.004,
+            max_duration=5.0,
+            stop_condition=stop,
+        )
+        assert result.terminated_by == "condition"
+
+    def test_move_to_converges(self, model_and_data, arm_indices):
+        """move_to should reach a nearby target pose."""
+        model, data = model_and_data
+        qpos_idx, qvel_idx, ee_id = arm_indices
+        # Large L reduces angular penalty so joint1 can achieve y-translation
+        controller = CartesianController(
+            model, data, ee_id, qpos_idx, qvel_idx,
+            q_min=np.array([-3.14, -3.14]), q_max=np.array([3.14, 3.14]),
+            qd_max=np.array([2.0, 2.0]),
+            config=CartesianControlConfig(length_scale=10.0, min_progress=0.0),
+        )
+
+        mujoco.mj_forward(model, data)
+        target = np.eye(4)
+        target[:3, :3] = data.site_xmat[ee_id].reshape(3, 3)
+        target[:3, 3] = data.site_xpos[ee_id] + np.array([0, 0.02, 0])
+
+        result = controller.move_to(
+            target, dt=0.004, max_duration=10.0, speed=0.05,
+            position_tol=0.005, rotation_tol=0.1,
+        )
+        assert result.terminated_by == "condition"
+        pos_err = np.linalg.norm(target[:3, 3] - data.site_xpos[ee_id])
+        assert pos_err < 0.01
