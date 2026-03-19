@@ -79,6 +79,52 @@ Uses [EAIK](https://github.com/Jonte-Raab/EAIK) for analytical inverse kinematic
 - **6-DOF** (e.g. UR5e): Direct analytical solve
 - **7-DOF** (e.g. Franka): Lock one joint, discretize over its range, solve 6-DOF IK at each value
 
+## Cartesian Control
+
+Real-time Cartesian control moves the end-effector along a desired twist while respecting joint position and velocity limits. Rather than pseudoinverse + post-hoc clamping (which distorts motion direction), we solve a constrained QP at each timestep:
+
+```math
+min  ½ ‖J q̇ − v_d‖²_W + (λ/2)‖q̇‖²    s.t.  ℓ ≤ q̇ ≤ u
+```
+
+The bounds `ℓ`, `u` encode both velocity limits and position limits converted to velocity constraints, so joint limits are never violated. Singularities are handled implicitly by the damping term `λI`.
+
+```python
+from mj_manipulator.cartesian import CartesianController, CartesianControlConfig
+
+controller = CartesianController(arm, config=CartesianControlConfig())
+
+# Move 5 cm/s in +x
+result = controller.step(twist=np.array([0.05, 0, 0, 0, 0, 0]), dt=0.008)
+print(result.achieved_fraction)   # 1.0 = full twist achieved
+print(result.limiting_factor)     # None / "joint_limit" / "velocity"
+```
+
+See [docs/cartesian-control.md](docs/cartesian-control.md) for the full derivation including twist weighting, projected gradient descent solver, convergence analysis, and comparison with MoveIt Servo.
+
+## Grasp-Aware Collision
+
+During manipulation, a grasped object must be treated as part of the robot: gripper-to-object contacts are expected, but arm-to-object and object-to-environment contacts indicate a collision. `CollisionChecker` handles this with software contact filtering — no MuJoCo collision group changes needed.
+
+```python
+from mj_manipulator.collision import CollisionChecker
+from mj_manipulator.grasp_manager import GraspManager, detect_grasped_object
+
+grasp_manager = GraspManager(model, data)
+
+# After closing gripper:
+grasped = detect_grasped_object(model, data, gripper_body_names, candidate_objects=["can_0"])
+if grasped:
+    grasp_manager.mark_grasped(grasped, arm="right")
+    grasp_manager.attach_object(grasped, "gripper/right_pad")
+
+# Collision checker uses grasp state automatically:
+checker = CollisionChecker(model, data, joint_names, grasp_manager=grasp_manager)
+checker.is_valid(q)   # allows gripper↔can; rejects arm↔can, can↔env
+```
+
+See [docs/grasp-aware-collision.md](docs/grasp-aware-collision.md) for the filtering logic, live vs snapshot modes for parallel planning, and the complete grasp lifecycle.
+
 ## Architecture
 
 ```
