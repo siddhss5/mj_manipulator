@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 import mujoco
 import numpy as np
 
+from mj_manipulator.contacts import iter_contacts
+
 if TYPE_CHECKING:
     from mj_manipulator.grasp_manager import GraspManager
 
@@ -178,11 +180,7 @@ class _BaseGripper:
         candidate_body: str | None = None
         first_external: str | None = None
 
-        for i in range(self._data.ncon):
-            contact = self._data.contact[i]
-            b1 = self._model.geom_bodyid[contact.geom1]
-            b2 = self._model.geom_bodyid[contact.geom2]
-
+        for b1, b2, _ in iter_contacts(self._model, self._data):
             b1_gripper = b1 in self._gripper_body_ids
             b2_gripper = b2 in self._gripper_body_ids
 

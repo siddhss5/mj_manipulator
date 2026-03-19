@@ -22,6 +22,8 @@ import mujoco
 import numpy as np
 from scipy.linalg import cho_factor, cho_solve
 
+from mj_manipulator.contacts import iter_contacts
+
 logger = logging.getLogger(__name__)
 
 
@@ -341,19 +343,11 @@ def check_gripper_contact(
         if body_id != -1:
             gripper_body_ids.add(body_id)
 
-    for i in range(data.ncon):
-        contact = data.contact[i]
-        geom1_body = model.geom_bodyid[contact.geom1]
-        geom2_body = model.geom_bodyid[contact.geom2]
-
-        if geom1_body in gripper_body_ids:
-            return mujoco.mj_id2name(
-                model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom2
-            )
-        if geom2_body in gripper_body_ids:
-            return mujoco.mj_id2name(
-                model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom1
-            )
+    for b1, b2, contact in iter_contacts(model, data):
+        if b1 in gripper_body_ids:
+            return mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom2)
+        if b2 in gripper_body_ids:
+            return mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom1)
 
     return None
 
@@ -410,25 +404,17 @@ def check_arm_contact(
     Returns:
         Name of contacted geom, or None if no contact.
     """
-    for i in range(data.ncon):
-        contact = data.contact[i]
-        geom1_body = model.geom_bodyid[contact.geom1]
-        geom2_body = model.geom_bodyid[contact.geom2]
+    for b1, b2, contact in iter_contacts(model, data):
+        b1_is_arm = b1 in arm_body_ids
+        b2_is_arm = b2 in arm_body_ids
 
-        geom1_is_arm = geom1_body in arm_body_ids
-        geom2_is_arm = geom2_body in arm_body_ids
-
-        if exclude_self_collision and geom1_is_arm and geom2_is_arm:
+        if exclude_self_collision and b1_is_arm and b2_is_arm:
             continue
 
-        if geom1_is_arm and not geom2_is_arm:
-            return mujoco.mj_id2name(
-                model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom2
-            )
-        if geom2_is_arm and not geom1_is_arm:
-            return mujoco.mj_id2name(
-                model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom1
-            )
+        if b1_is_arm and not b2_is_arm:
+            return mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom2)
+        if b2_is_arm and not b1_is_arm:
+            return mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, contact.geom1)
 
     return None
 

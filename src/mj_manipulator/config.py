@@ -67,11 +67,7 @@ class ArmConfig(EntityConfig):
     datasheet values (e.g., KinematicLimits for UR5e, Franka, Xarm).
     """
 
-    kinematic_limits: KinematicLimits = field(
-        default_factory=lambda: KinematicLimits(
-            velocity=np.ones(1), acceleration=np.ones(1)
-        )
-    )
+    kinematic_limits: KinematicLimits  # required: robot-specific velocity/acceleration limits
     ee_site: str = ""  # MuJoCo site name for Jacobian / FK
     tcp_offset: np.ndarray | None = None  # 4x4 SE3 from ee_site to tool center point
     planning_defaults: PlanningDefaults = field(default_factory=PlanningDefaults)

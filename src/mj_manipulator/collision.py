@@ -16,6 +16,7 @@ import logging
 import mujoco
 import numpy as np
 
+from mj_manipulator.contacts import iter_contacts
 from mj_manipulator.grasp_manager import GraspManager
 
 logger = logging.getLogger(__name__)
@@ -148,11 +149,7 @@ class CollisionChecker:
         else:
             data = self._live_data if self._live_data is not None else self.data
 
-        for i in range(data.ncon):
-            contact = data.contact[i]
-            body1 = self.model.geom_bodyid[contact.geom1]
-            body2 = self.model.geom_bodyid[contact.geom2]
-
+        for body1, body2, contact in iter_contacts(self.model, data):
             body1_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, body1)
             body2_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, body2)
 
@@ -275,11 +272,7 @@ class CollisionChecker:
         """
         invalid_count = 0
 
-        for i in range(data.ncon):
-            contact = data.contact[i]
-            body1 = self.model.geom_bodyid[contact.geom1]
-            body2 = self.model.geom_bodyid[contact.geom2]
-
+        for body1, body2, _ in iter_contacts(self.model, data):
             body1_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, body1)
             body2_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, body2)
 

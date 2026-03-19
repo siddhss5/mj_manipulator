@@ -10,6 +10,8 @@ import logging
 import mujoco
 import numpy as np
 
+from mj_manipulator.contacts import iter_contacts
+
 logger = logging.getLogger(__name__)
 
 
@@ -229,11 +231,7 @@ def detect_grasped_object(
     # Track contacts per object: body_id -> {group_name: bool, ..., "count": int}
     object_contacts: dict[int, dict] = {}
 
-    for i in range(data.ncon):
-        contact = data.contact[i]
-        body1 = model.geom_bodyid[contact.geom1]
-        body2 = model.geom_bodyid[contact.geom2]
-
+    for body1, body2, _ in iter_contacts(model, data):
         gripper_body = None
         other_body = None
         if body1 in all_gripper_body_ids:
@@ -265,6 +263,13 @@ def detect_grasped_object(
 
     # Filter by bilateral contact requirement
     non_empty_groups = [g for g, ids in group_body_ids.items() if ids]
+    if require_bilateral and len(non_empty_groups) < 2:
+        logger.warning(
+            "require_bilateral=True but only %d non-empty finger group(s) found "
+            "(body names may not match '/left_' or '/right_' convention); "
+            "falling back to any-contact detection",
+            len(non_empty_groups),
+        )
     if require_bilateral and len(non_empty_groups) >= 2:
         bilateral = {
             bid: info

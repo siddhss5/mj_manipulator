@@ -570,4 +570,4 @@ class _NoIKSolver:
     def solve_valid(
         self, pose: np.ndarray, q_init: np.ndarray | None = None
     ) -> list[np.ndarray]:
-        return []
+        return self.solve(pose, q_init)
