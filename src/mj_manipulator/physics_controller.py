@@ -460,6 +460,7 @@ class PhysicsController:
             steps = self.gripper_config.open_steps
 
         if arm_name not in self._grippers:
+            logger.warning("No gripper found for %s", arm_name)
             return
 
         gstate = self._grippers[arm_name]

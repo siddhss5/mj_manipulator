@@ -111,6 +111,10 @@ class MuJoCoEAIKSolver:
     Supports both standard 6-DOF arms and 7-DOF arms with joint
     discretization via ``fixed_joint_index``.
 
+    Assumes the MuJoCo model is static after construction — H, P, and the EE
+    orientation offset are extracted once at init. If the model geometry
+    changes, create a new solver.
+
     Implements the IKSolver protocol (solve / solve_valid).
 
     Args:
