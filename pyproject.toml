@@ -1,6 +1,6 @@
 [project]
 name = "mj-manipulator"
-version = "0.1.0"
+version = "1.0.0"
 description = "Generic MuJoCo manipulator control: planning, execution, grasping, and cartesian control for any robot arm"
 readme = "README.md"
 license = {text = "BSD-3-Clause"}
