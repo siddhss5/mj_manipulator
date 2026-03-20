@@ -14,7 +14,6 @@ Usage:
     uv run python demos/grippers.py
 """
 
-import sys
 from pathlib import Path
 
 import mujoco
@@ -30,15 +29,15 @@ from mj_manipulator.arms.franka import (
 from mj_manipulator.grasp_manager import GraspManager
 from mj_manipulator.grippers.franka import FrankaGripper
 from mj_manipulator.grippers.robotiq import RobotiqGripper
+from mj_manipulator.menagerie import menagerie_scene
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 WORKSPACE = Path(__file__).resolve().parent.parent.parent  # robot-code/
-MENAGERIE = WORKSPACE / "mujoco_menagerie"
 GEODUDE_ASSETS = WORKSPACE / "geodude_assets" / "src" / "geodude_assets" / "models"
 ROBOTIQ_SCENE = GEODUDE_ASSETS / "robotiq_2f140" / "scene.xml"
-FRANKA_SCENE = MENAGERIE / "franka_emika_panda" / "scene.xml"
+FRANKA_SCENE = menagerie_scene("franka_emika_panda")
 
 
 def print_header(title):

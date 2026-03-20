@@ -7,8 +7,6 @@ Uses real menagerie robot models to verify:
 - Franka discretized joint-5 IK
 """
 
-from pathlib import Path
-
 import mujoco
 import numpy as np
 import pytest
@@ -21,14 +19,6 @@ from mj_manipulator.arms.ur5e import (
     create_ur5e_arm,
 )
 
-# ---------------------------------------------------------------------------
-# Paths
-# ---------------------------------------------------------------------------
-WORKSPACE = Path(__file__).resolve().parent.parent.parent  # robot-code/
-MENAGERIE = WORKSPACE / "mujoco_menagerie"
-UR5E_SCENE = MENAGERIE / "universal_robots_ur5e" / "scene.xml"
-FRANKA_SCENE = MENAGERIE / "franka_emika_panda" / "scene.xml"
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -37,9 +27,12 @@ FRANKA_SCENE = MENAGERIE / "franka_emika_panda" / "scene.xml"
 
 @pytest.fixture
 def ur5e_env():
-    if not UR5E_SCENE.exists():
+    try:
+        from mj_manipulator.menagerie import menagerie_scene
+        scene = menagerie_scene("universal_robots_ur5e")
+    except FileNotFoundError:
         pytest.skip("mujoco_menagerie not found")
-    return Environment(str(UR5E_SCENE))
+    return Environment(str(scene))
 
 
 @pytest.fixture
@@ -54,16 +47,19 @@ def ur5e_arm(ur5e_env):
 
 @pytest.fixture
 def franka_env():
-    if not FRANKA_SCENE.exists():
+    try:
+        from mj_manipulator.menagerie import menagerie_scene
+        franka_scene = menagerie_scene("franka_emika_panda")
+    except FileNotFoundError:
         pytest.skip("mujoco_menagerie not found")
     # Franka needs an EE site added via MjSpec
     from mj_manipulator.arms.franka import add_franka_ee_site
 
-    spec = mujoco.MjSpec.from_file(str(FRANKA_SCENE))
+    spec = mujoco.MjSpec.from_file(str(franka_scene))
     add_franka_ee_site(spec)
 
     # Write modified XML to the menagerie directory so mesh paths resolve
-    franka_dir = FRANKA_SCENE.parent
+    franka_dir = franka_scene.parent
     tmp_path = franka_dir / "_test_scene_with_ee.xml"
     try:
         tmp_path.write_text(spec.to_xml())
@@ -245,12 +241,15 @@ class TestAddFrankaEeSite:
 
     def test_site_added(self):
         """add_franka_ee_site adds a site to the hand body."""
-        if not FRANKA_SCENE.exists():
+        try:
+            from mj_manipulator.menagerie import menagerie_scene
+            franka_scene = menagerie_scene("franka_emika_panda")
+        except FileNotFoundError:
             pytest.skip("mujoco_menagerie not found")
 
         from mj_manipulator.arms.franka import add_franka_ee_site
 
-        spec = mujoco.MjSpec.from_file(str(FRANKA_SCENE))
+        spec = mujoco.MjSpec.from_file(str(franka_scene))
         add_franka_ee_site(spec, site_name="test_ee")
         model = spec.compile()
 
@@ -259,12 +258,15 @@ class TestAddFrankaEeSite:
 
     def test_custom_position(self):
         """Custom position is applied to the site."""
-        if not FRANKA_SCENE.exists():
+        try:
+            from mj_manipulator.menagerie import menagerie_scene
+            franka_scene = menagerie_scene("franka_emika_panda")
+        except FileNotFoundError:
             pytest.skip("mujoco_menagerie not found")
 
         from mj_manipulator.arms.franka import add_franka_ee_site
 
-        spec = mujoco.MjSpec.from_file(str(FRANKA_SCENE))
+        spec = mujoco.MjSpec.from_file(str(franka_scene))
         add_franka_ee_site(spec, pos=[0, 0, 0.2])
         model = spec.compile()
 

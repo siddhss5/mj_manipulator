@@ -320,10 +320,10 @@ class TestWithRealModels:
 
     @pytest.fixture
     def ur5e(self):
-        from pathlib import Path
-        scene = Path("/Users/siddh/code/robot-code/mujoco_menagerie"
-                      "/universal_robots_ur5e/scene.xml")
-        if not scene.exists():
+        try:
+            from mj_manipulator.menagerie import menagerie_scene
+            scene = menagerie_scene("universal_robots_ur5e")
+        except FileNotFoundError:
             pytest.skip("mujoco_menagerie not available")
         model = mujoco.MjModel.from_xml_path(str(scene))
         data = mujoco.MjData(model)
@@ -345,10 +345,10 @@ class TestWithRealModels:
 
     @pytest.fixture
     def franka(self):
-        from pathlib import Path
-        scene = Path("/Users/siddh/code/robot-code/mujoco_menagerie"
-                      "/franka_emika_panda/scene.xml")
-        if not scene.exists():
+        try:
+            from mj_manipulator.menagerie import menagerie_scene
+            scene = menagerie_scene("franka_emika_panda")
+        except FileNotFoundError:
             pytest.skip("mujoco_menagerie not available")
         model = mujoco.MjModel.from_xml_path(str(scene))
         data = mujoco.MjData(model)

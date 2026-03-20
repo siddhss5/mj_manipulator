@@ -18,6 +18,7 @@ dependencies = [
     "tsr @ git+https://github.com/personalrobotics/tsr.git",
     "eaik",
     "prl-assets @ git+https://github.com/personalrobotics/prl_assets.git",
+    "geodude-assets @ git+https://github.com/personalrobotics/geodude_assets.git",
 ]
 
 [tool.uv.sources]

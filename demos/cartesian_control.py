@@ -12,9 +12,6 @@ Usage:
     uv run python demos/cartesian_control.py
 """
 
-import sys
-from pathlib import Path
-
 import mujoco
 import numpy as np
 
@@ -25,14 +22,13 @@ from mj_manipulator.arms.ur5e import UR5E_HOME, create_ur5e_arm
 
 # Internal functions — useful for introspection but not part of the public API
 from mj_manipulator.cartesian import get_ee_jacobian, twist_to_joint_velocity
+from mj_manipulator.menagerie import menagerie_scene
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-WORKSPACE = Path(__file__).resolve().parent.parent.parent  # robot-code/
-MENAGERIE = WORKSPACE / "mujoco_menagerie"
-UR5E_SCENE = MENAGERIE / "universal_robots_ur5e" / "scene.xml"
-FRANKA_SCENE = MENAGERIE / "franka_emika_panda" / "scene.xml"
+UR5E_SCENE = menagerie_scene("universal_robots_ur5e")
+FRANKA_SCENE = menagerie_scene("franka_emika_panda")
 
 
 def print_header(title):
@@ -235,10 +231,6 @@ def run_demos(arm, label):
 
 
 def main():
-    if not MENAGERIE.exists():
-        print(f"ERROR: mujoco_menagerie not found at {MENAGERIE}")
-        sys.exit(1)
-
     ur5e_arm, ur5e_label = _load_arm("ur5e")
     run_demos(ur5e_arm, ur5e_label)
 

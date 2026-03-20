@@ -16,9 +16,7 @@ Usage:
     uv run python demos/ik_solver.py
 """
 
-import sys
 import time
-from pathlib import Path
 
 import mujoco
 import numpy as np
@@ -30,14 +28,13 @@ from mj_manipulator.arms.franka import (
     create_franka_arm,
 )
 from mj_manipulator.arms.ur5e import UR5E_HOME, create_ur5e_arm
+from mj_manipulator.menagerie import menagerie_scene
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-WORKSPACE = Path(__file__).resolve().parent.parent.parent  # robot-code/
-MENAGERIE = WORKSPACE / "mujoco_menagerie"
-UR5E_SCENE = MENAGERIE / "universal_robots_ur5e" / "scene.xml"
-FRANKA_SCENE = MENAGERIE / "franka_emika_panda" / "scene.xml"
+UR5E_SCENE = menagerie_scene("universal_robots_ur5e")
+FRANKA_SCENE = menagerie_scene("franka_emika_panda")
 
 
 def print_header(title):
@@ -177,10 +174,6 @@ def demo_roundtrip(arm, label):
 # Main
 # ---------------------------------------------------------------------------
 def main():
-    if not MENAGERIE.exists():
-        print(f"ERROR: mujoco_menagerie not found at {MENAGERIE}")
-        sys.exit(1)
-
     # === UR5e (6-DOF, direct analytical IK) ===
     ur5e_env = Environment(str(UR5E_SCENE))
     ur5e = create_ur5e_arm(ur5e_env)

@@ -15,9 +15,6 @@ Usage:
     uv run python demos/sim_context.py
 """
 
-import sys
-from pathlib import Path
-
 import mujoco
 import numpy as np
 
@@ -29,15 +26,14 @@ from mj_manipulator.arms.franka import (
 )
 from mj_manipulator.arms.ur5e import UR5E_HOME, create_ur5e_arm
 from mj_manipulator.config import PhysicsConfig, PhysicsExecutionConfig
+from mj_manipulator.menagerie import menagerie_scene
 from mj_manipulator.sim_context import SimContext
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-WORKSPACE = Path(__file__).resolve().parent.parent.parent  # robot-code/
-MENAGERIE = WORKSPACE / "mujoco_menagerie"
-UR5E_SCENE = MENAGERIE / "universal_robots_ur5e" / "scene.xml"
-FRANKA_SCENE = MENAGERIE / "franka_emika_panda" / "scene.xml"
+UR5E_SCENE = menagerie_scene("universal_robots_ur5e")
+FRANKA_SCENE = menagerie_scene("franka_emika_panda")
 
 
 def print_header(title):
@@ -155,10 +151,6 @@ def demo_step_cartesian(arm, env, home, goal, label, physics_config, n_steps=50)
 # Main
 # ---------------------------------------------------------------------------
 def main():
-    if not MENAGERIE.exists():
-        print(f"ERROR: mujoco_menagerie not found at {MENAGERIE}")
-        sys.exit(1)
-
     # Physics config with generous tolerances for menagerie models
     physics_config = PhysicsConfig(
         execution=PhysicsExecutionConfig(

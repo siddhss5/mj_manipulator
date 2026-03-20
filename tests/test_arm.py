@@ -4,8 +4,6 @@ Uses real menagerie robot models (UR5e) to verify state queries,
 forward kinematics, and motion planning.
 """
 
-from pathlib import Path
-
 import mujoco
 import numpy as np
 import pytest
@@ -14,13 +12,6 @@ from mj_environment import Environment
 
 from mj_manipulator.arm import Arm, ArmRobotModel, ContextRobotModel
 from mj_manipulator.config import ArmConfig, KinematicLimits
-
-# ---------------------------------------------------------------------------
-# Paths
-# ---------------------------------------------------------------------------
-WORKSPACE = Path(__file__).resolve().parent.parent.parent  # robot-code/
-MENAGERIE = WORKSPACE / "mujoco_menagerie"
-UR5E_SCENE = MENAGERIE / "universal_robots_ur5e" / "scene.xml"
 
 # UR5e constants
 UR5E_JOINTS = [
@@ -50,9 +41,12 @@ def _ur5e_config() -> ArmConfig:
 @pytest.fixture
 def ur5e_env():
     """Create Environment with UR5e scene."""
-    if not UR5E_SCENE.exists():
+    try:
+        from mj_manipulator.menagerie import menagerie_scene
+        scene = menagerie_scene("universal_robots_ur5e")
+    except FileNotFoundError:
         pytest.skip("mujoco_menagerie not found")
-    return Environment(str(UR5E_SCENE))
+    return Environment(str(scene))
 
 
 @pytest.fixture
