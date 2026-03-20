@@ -37,7 +37,6 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import mujoco
@@ -70,18 +69,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-WORKSPACE = Path(__file__).resolve().parent.parent.parent  # robot-code/
+import geodude_assets
+
 UR5E_SCENE   = menagerie_scene("universal_robots_ur5e")
 FRANKA_SCENE = menagerie_scene("franka_emika_panda")
-ROBOTIQ_MODEL = (
-    WORKSPACE
-    / "geodude_assets"
-    / "src"
-    / "geodude_assets"
-    / "models"
-    / "robotiq_2f140"
-    / "2f140.xml"
-)
+ROBOTIQ_MODEL = geodude_assets.MODELS_DIR / "robotiq_2f140" / "2f140.xml"
 
 # ---------------------------------------------------------------------------
 # prl_assets — real soda can + recycling bin

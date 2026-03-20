@@ -8,8 +8,7 @@ Uses real menagerie/geodude_assets robot models to verify:
 - Integration with arm factories
 """
 
-from pathlib import Path
-
+import geodude_assets
 import mujoco
 import numpy as np
 import pytest
@@ -24,11 +23,7 @@ from mj_manipulator.protocols import Gripper
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-_WORKSPACE = Path(__file__).resolve().parent.parent.parent  # robot-code/
-_ROBOTIQ_SCENE = (
-    _WORKSPACE / "geodude_assets" / "src" / "geodude_assets" / "models"
-    / "robotiq_2f140" / "scene.xml"
-)
+_ROBOTIQ_SCENE = geodude_assets.MODELS_DIR / "robotiq_2f140" / "scene.xml"
 
 
 # ---------------------------------------------------------------------------
