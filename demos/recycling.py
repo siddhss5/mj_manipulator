@@ -173,6 +173,55 @@ def _attach_objects(spec: mujoco.MjSpec, can_positions: list[list[float]]) -> No
 # ---------------------------------------------------------------------------
 
 
+def _add_table_and_cans(spec: mujoco.MjSpec, n_cans: int = 3) -> None:
+    """Add a table with cans placed via TSR sampling."""
+    table_half = [0.15, 0.15, 0.23]  # 30x30cm surface, 46cm tall
+    table_center = [0.45, -0.20, table_half[2]]
+    _add_table(spec, pos=table_center, size=table_half)
+
+    table_surface = np.eye(4)
+    table_surface[:3, 3] = [table_center[0], table_center[1], table_half[2] * 2]
+    placer = TablePlacer(table_half[0], table_half[1])
+    place_templates = placer.place_cylinder(_CAN_GP["radius"], _CAN_GP["height"])
+
+    # The can XML has body pos="0 0 0.0615" (half-height offset baked in),
+    # so the attach frame goes at the table surface, not the can center.
+    can_body_offset_z = _CAN_GP["height"] / 2
+    can_positions = []
+    for _ in range(n_cans):
+        tsr = place_templates[0].instantiate(table_surface)
+        pose = tsr.sample()
+        pos = list(pose[:3, 3])
+        pos[2] -= can_body_offset_z
+        can_positions.append(pos)
+    _attach_objects(spec, can_positions)
+
+
+def _compile_and_create_arm(spec, robot_type):
+    """Compile spec, create Environment + Arm + Gripper."""
+    model = spec.compile()
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+    env = Environment.from_model(model, data)
+    gm = GraspManager(env.model, env.data)
+
+    if robot_type == "ur5e":
+        gripper = RobotiqGripper(env.model, env.data, "ur5e", prefix="gripper/", grasp_manager=gm)
+        arm = create_ur5e_arm(env, ee_site=UR5E_ROBOTIQ_EE_SITE, gripper=gripper, grasp_manager=gm)
+        home = UR5E_HOME
+    else:
+        gripper = FrankaGripper(env.model, env.data, "franka", grasp_manager=gm)
+        arm = create_franka_arm(env, gripper=gripper, grasp_manager=gm)
+        gripper.kinematic_open()  # default qpos=0 is fully closed
+        home = FRANKA_HOME
+
+    for i, idx in enumerate(arm.joint_qpos_indices):
+        env.data.qpos[idx] = home[i]
+    mujoco.mj_forward(env.model, env.data)
+
+    return env, arm, home
+
+
 def setup_ur5e():
     """Compose UR5e + Robotiq + cans + recycle bin scene."""
     for path, label in [(UR5E_SCENE, "UR5e scene"), (ROBOTIQ_MODEL, "Robotiq model")]:
@@ -190,43 +239,8 @@ def setup_ur5e():
     frame.quat = [-1, 1, 0, 0]
     frame.attach_body(robotiq_spec.worldbody.first_body(), prefix="gripper/")
 
-    # Add table and sample can placements using TSR
-    table_half = [0.15, 0.15, 0.23]  # 30x30cm surface, 46cm tall
-    table_center = [0.45, -0.20, table_half[2]]
-    _add_table(spec, pos=table_center, size=table_half)
-
-    table_surface = np.eye(4)
-    table_surface[:3, 3] = [table_center[0], table_center[1], table_half[2] * 2]
-    placer = TablePlacer(table_half[0], table_half[1])
-    place_templates = placer.place_cylinder(_CAN_GP["radius"], _CAN_GP["height"])
-
-    # The can XML has body pos="0 0 0.0615" (half-height offset from parent
-    # frame), so the attach frame should be at the table surface, not at the
-    # can's geometric center.
-    can_body_offset_z = _CAN_GP["height"] / 2
-    can_positions = []
-    for _ in range(3):
-        tsr = place_templates[0].instantiate(table_surface)
-        pose = tsr.sample()
-        pos = list(pose[:3, 3])
-        pos[2] -= can_body_offset_z
-        can_positions.append(pos)
-    _attach_objects(spec, can_positions)
-
-    model = spec.compile()
-    data  = mujoco.MjData(model)
-    mujoco.mj_forward(model, data)
-    env = Environment.from_model(model, data)
-
-    gm      = GraspManager(env.model, env.data)
-    gripper = RobotiqGripper(env.model, env.data, "ur5e", prefix="gripper/", grasp_manager=gm)
-    arm     = create_ur5e_arm(env, ee_site=UR5E_ROBOTIQ_EE_SITE, gripper=gripper, grasp_manager=gm)
-
-    for i, idx in enumerate(arm.joint_qpos_indices):
-        env.data.qpos[idx] = UR5E_HOME[i]
-    mujoco.mj_forward(env.model, env.data)
-
-    return env, arm, UR5E_HOME
+    _add_table_and_cans(spec)
+    return _compile_and_create_arm(spec, "ur5e")
 
 
 def setup_franka():
@@ -238,44 +252,8 @@ def setup_franka():
     spec = mujoco.MjSpec.from_file(str(FRANKA_SCENE))
     add_franka_ee_site(spec)
 
-    # Add table and sample can placements using TSR
-    table_half = [0.15, 0.15, 0.23]
-    table_center = [0.45, -0.20, table_half[2]]
-    _add_table(spec, pos=table_center, size=table_half)
-
-    table_surface = np.eye(4)
-    table_surface[:3, 3] = [table_center[0], table_center[1], table_half[2] * 2]
-    placer = TablePlacer(table_half[0], table_half[1])
-    place_templates = placer.place_cylinder(_CAN_GP["radius"], _CAN_GP["height"])
-
-    # The can XML has body pos="0 0 0.0615" (half-height offset from parent
-    # frame), so the attach frame should be at the table surface, not at the
-    # can's geometric center.
-    can_body_offset_z = _CAN_GP["height"] / 2
-    can_positions = []
-    for _ in range(3):
-        tsr = place_templates[0].instantiate(table_surface)
-        pose = tsr.sample()
-        pos = list(pose[:3, 3])
-        pos[2] -= can_body_offset_z
-        can_positions.append(pos)
-    _attach_objects(spec, can_positions)
-
-    model = spec.compile()
-    data  = mujoco.MjData(model)
-    mujoco.mj_forward(model, data)
-    env = Environment.from_model(model, data)
-
-    gm      = GraspManager(env.model, env.data)
-    gripper = FrankaGripper(env.model, env.data, "franka", grasp_manager=gm)
-    arm     = create_franka_arm(env, gripper=gripper, grasp_manager=gm)
-
-    for i, idx in enumerate(arm.joint_qpos_indices):
-        env.data.qpos[idx] = FRANKA_HOME[i]
-    gripper.kinematic_open()  # default qpos=0 is fully closed → self-collision
-    mujoco.mj_forward(env.model, env.data)
-
-    return env, arm, FRANKA_HOME
+    _add_table_and_cans(spec)
+    return _compile_and_create_arm(spec, "franka")
 
 
 # ---------------------------------------------------------------------------
