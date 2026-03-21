@@ -419,6 +419,13 @@ def run_recycling(
         headless=headless,
         physics_config=physics_config,
     ) as ctx:
+        # Re-open Franka gripper — viewer launch resets qpos to model defaults
+        if robot_type == "franka" and arm.gripper is not None:
+            arm.gripper.kinematic_open()
+            if arm.gripper.actuator_id is not None:
+                env.data.ctrl[arm.gripper.actuator_id] = arm.gripper.ctrl_open
+            ctx.sync()
+
         for cycle, body_name in enumerate(CAN_BODY_NAMES[:cycles], 1):
             print(f"\n--- Cycle {cycle}: {body_name} ---")
             print(f"  Can at: {env.get_body_pose(body_name)[:3, 3].round(3)}")
