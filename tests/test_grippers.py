@@ -190,8 +190,8 @@ class TestFrankaGripperConstruction:
         assert franka_gripper.actuator_id >= 0
 
     def test_ctrl_range(self, franka_gripper):
-        assert franka_gripper.ctrl_open == 0.0
-        assert franka_gripper.ctrl_closed == 255.0
+        assert franka_gripper.ctrl_open == 255.0
+        assert franka_gripper.ctrl_closed == 0.0
 
     def test_body_names(self, franka_gripper):
         names = franka_gripper.gripper_body_names

@@ -122,7 +122,12 @@ def make_grasp_tsrs(T_center: np.ndarray, robot_type: str) -> list:
     hand = _FRANKA if robot_type == "franka" else _ROBOTIQ
     T_bottom = T_center.copy()
     T_bottom[2, 3] -= _CAN_GP["height"] / 2   # centre → bottom
-    templates = hand.grasp_cylinder(_CAN_GP["radius"], _CAN_GP["height"])
+    # Use side grasps only — more stable for cylindrical objects
+    templates = hand.grasp_cylinder_side(_CAN_GP["radius"], _CAN_GP["height"])
+    # Filter to deep grasps (shallow grasps grip at fingertips and drop in physics)
+    templates = [t for t in templates if "deep" in t.name.lower()]
+    if not templates:
+        templates = hand.grasp_cylinder_side(_CAN_GP["radius"], _CAN_GP["height"])
     return [t.instantiate(T_bottom) for t in templates]
 
 
