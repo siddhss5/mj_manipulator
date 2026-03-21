@@ -187,13 +187,20 @@ def _add_table_and_cans(spec: mujoco.MjSpec, n_cans: int = 3) -> None:
     # The can XML has body pos="0 0 0.0615" (half-height offset baked in),
     # so the attach frame goes at the table surface, not the can center.
     can_body_offset_z = _CAN_GP["height"] / 2
+    min_separation = _CAN_GP["radius"] * 3  # cans must be 3 radii apart
     can_positions = []
     for _ in range(n_cans):
         tsr = place_templates[0].instantiate(table_surface)
-        pose = tsr.sample()
-        pos = list(pose[:3, 3])
-        pos[2] -= can_body_offset_z
-        can_positions.append(pos)
+        for _attempt in range(50):
+            pose = tsr.sample()
+            pos = pose[:3, 3]
+            # Check separation from already-placed cans
+            if all(np.linalg.norm(pos[:2] - np.array(p[:2])) > min_separation
+                   for p in can_positions):
+                break
+        result = list(pos)
+        result[2] -= can_body_offset_z
+        can_positions.append(result)
     _attach_objects(spec, can_positions)
 
 
@@ -304,7 +311,10 @@ def place(ctx: SimContext, arm: Arm, body_name: str) -> bool:
     """Plan to the place pose above the bin, execute, release."""
     logger.info("Planning placement above recycling bin...")
     place_pose = compute_place_pose()
-    path = arm.plan_to_pose(place_pose, timeout=10.0)
+    try:
+        path = arm.plan_to_pose(place_pose, timeout=10.0)
+    except Exception:
+        path = None
     if path is None:
         logger.warning("Place planning failed")
         return False
