@@ -259,7 +259,8 @@ def run(robot_type, *, physics=False, headless=False, cycles=3):
                 tree.tick()
 
             if pickup_node.status == Status.FAILURE:
-                print(f"  FAILED to pick up {body_name}")
+                # Recovery subtree already ran (Selector fallback)
+                print(f"  FAILED to pick up {body_name} (recovery attempted)")
                 continue
 
             print(f"  Picked up {body_name}")
@@ -275,16 +276,17 @@ def run(robot_type, *, physics=False, headless=False, cycles=3):
                 print(f"  Dropped {body_name} into bin")
                 if not physics:
                     env.hide_freebody(body_name)
+                # Return home after successful place
+                try:
+                    home_path = arm.plan_to_configuration(home, timeout=10.0)
+                except Exception:
+                    home_path = None
+                if home_path is not None:
+                    ctx.execute(arm.retime(home_path))
             else:
                 print(f"  FAILED to place {body_name}")
+                # Recovery already ran via the tree's recover subtree
 
-            # Return home
-            try:
-                home_path = arm.plan_to_configuration(home, timeout=10.0)
-            except Exception:
-                home_path = None
-            if home_path is not None:
-                ctx.execute(arm.retime(home_path))
             ctx.sync()
 
         print(f"\nCompleted {min(cycles, len(CAN_BODY_NAMES))} cycles.")
