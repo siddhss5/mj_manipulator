@@ -30,6 +30,9 @@ asset-manager = { workspace = true }
 geodude-assets = { workspace = true }
 
 [project.optional-dependencies]
+bt = [
+    "py_trees>=2.2",
+]
 dev = [
     "pytest",
     "ruff",
