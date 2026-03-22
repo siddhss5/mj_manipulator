@@ -122,13 +122,17 @@ def pickup_with_recovery(ns: str) -> py_trees.composites.Selector:
     """Pickup with fallback recovery on failure.
 
     If pickup fails at any stage, releases, retracts, and returns home.
+    The Selector still returns FAILURE because recovery wraps with
+    SuccessIsFailure — cleanup succeeded but the task did not.
     """
     return py_trees.composites.Selector(
         name="pickup_or_recover",
         memory=True,
         children=[
             pickup(ns),
-            recover(ns),
+            py_trees.decorators.SuccessIsFailure(
+                name="recover_then_fail", child=recover(ns),
+            ),
         ],
     )
 
@@ -155,12 +159,16 @@ def place_with_recovery(ns: str) -> py_trees.composites.Selector:
     """Place with fallback recovery on failure.
 
     If place planning/execution fails, releases, retracts, returns home.
+    The Selector still returns FAILURE because recovery wraps with
+    SuccessIsFailure — cleanup succeeded but the task did not.
     """
     return py_trees.composites.Selector(
         name="place_or_recover",
         memory=True,
         children=[
             place(ns),
-            recover(ns),
+            py_trees.decorators.SuccessIsFailure(
+                name="recover_then_fail", child=recover(ns),
+            ),
         ],
     )
