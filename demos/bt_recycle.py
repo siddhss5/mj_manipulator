@@ -225,7 +225,8 @@ def run(robot_type, *, physics=False, headless=False, cycles=3):
 
         # Set up blackboard
         bb = py_trees.blackboard.Client(name="demo")
-        for key in ["/context", f"{ns}/arm", f"{ns}/arm_name", f"{ns}/tsrs",
+        for key in ["/context", f"{ns}/arm", f"{ns}/arm_name",
+                     f"{ns}/grasp_tsrs", f"{ns}/place_tsrs", f"{ns}/grasped",
                      f"{ns}/timeout", f"{ns}/object_name", f"{ns}/goal_config",
                      f"{ns}/step_fn"]:
             bb.register_key(key=key, access=Access.WRITE)
@@ -237,46 +238,52 @@ def run(robot_type, *, physics=False, headless=False, cycles=3):
         bb.set(f"{ns}/goal_config", home)
         bb.set(f"{ns}/step_fn", step_fn)
 
-        for cycle, body_name in enumerate(CAN_BODY_NAMES[:cycles], 1):
+        # Set place TSRs once (same for all cycles)
+        bb.set(f"{ns}/place_tsrs", make_place_tsrs())
+
+        for cycle in range(1, cycles + 1):
             if not ctx.is_running():
                 break
 
-            print(f"\n--- Cycle {cycle}: {body_name} ---")
-            T_center = env.get_body_pose(body_name)
-            print(f"  Can at: {T_center[:3, 3].round(3)}")
+            # Combine grasp TSRs from ALL remaining cans
+            all_grasp_tsrs = []
+            remaining_cans = []
+            for body_name in CAN_BODY_NAMES:
+                try:
+                    T_center = env.get_body_pose(body_name)
+                except Exception:
+                    continue
+                # Skip hidden/removed cans
+                if abs(T_center[2, 3]) < 0.01:
+                    continue
+                tsrs = make_grasp_tsrs(T_center, robot_type)
+                all_grasp_tsrs.extend(tsrs)
+                remaining_cans.append(body_name)
 
-            # Reset tree
+            if not remaining_cans:
+                print(f"\n--- Cycle {cycle}: No cans remaining ---")
+                break
+
+            print(f"\n--- Cycle {cycle}: {len(remaining_cans)} cans, {len(all_grasp_tsrs)} TSRs ---")
+
+            # Set grasp TSRs (all cans combined) and a placeholder object name
+            # (the actual grasped object is detected by the Grasp node)
+            bb.set(f"{ns}/grasp_tsrs", all_grasp_tsrs)
+            bb.set(f"{ns}/object_name", remaining_cans[0])  # closest/first
+
+            # Reset tree for new cycle
             for node in root.iterate():
                 node.status = Status.INVALID
 
-            # Set pickup TSRs
-            bb.set(f"{ns}/tsrs", make_grasp_tsrs(T_center, robot_type))
-            bb.set(f"{ns}/object_name", body_name)
-
-            # Tick pickup phase
-            pickup_node = root.children[0]
-            while pickup_node.status not in (Status.SUCCESS, Status.FAILURE):
-                tree.tick()
-
-            if pickup_node.status == Status.FAILURE:
-                # Recovery subtree already ran (Selector fallback)
-                print(f"  FAILED to pick up {body_name} (recovery attempted)")
-                continue
-
-            print(f"  Picked up {body_name}")
-
-            # Switch to place TSRs
-            bb.set(f"{ns}/tsrs", make_place_tsrs())
-
-            # Tick place phase
-            while root.status not in (Status.SUCCESS, Status.FAILURE):
-                tree.tick()
+            # Tick entire tree (pickup → place in one tick since all nodes are synchronous)
+            tree.tick()
 
             if root.status == Status.SUCCESS:
-                print(f"  Dropped {body_name} into bin")
+                grasped = bb.get(f"{ns}/grasped")
+                print(f"  Picked and placed {grasped}")
                 if not physics:
-                    env.hide_freebody(body_name)
-                # Return home after successful place
+                    env.hide_freebody(grasped)
+                # Return home
                 try:
                     home_path = arm.plan_to_configuration(home, timeout=10.0)
                 except Exception:
@@ -284,8 +291,7 @@ def run(robot_type, *, physics=False, headless=False, cycles=3):
                 if home_path is not None:
                     ctx.execute(arm.retime(home_path))
             else:
-                print(f"  FAILED to place {body_name}")
-                # Recovery already ran via the tree's recover subtree
+                print(f"  Cycle failed (recovery attempted)")
 
             ctx.sync()
 

@@ -48,16 +48,17 @@ class PlanToTSRs(_ManipulationNode):
     Writes: ``{ns}/path``
     """
 
-    def __init__(self, ns: str = "", name: str = "PlanToTSRs"):
+    def __init__(self, ns: str = "", tsrs_key: str = "tsrs", name: str = "PlanToTSRs"):
         super().__init__(name, ns)
+        self._tsrs_key = tsrs_key
         self.bb.register_key(key=self._key("arm"), access=Access.READ)
-        self.bb.register_key(key=self._key("tsrs"), access=Access.READ)
+        self.bb.register_key(key=self._key(tsrs_key), access=Access.READ)
         self.bb.register_key(key=self._key("timeout"), access=Access.READ)
         self.bb.register_key(key=self._key("path"), access=Access.WRITE)
 
     def update(self) -> Status:
         arm = self.bb.get(self._key("arm"))
-        tsrs = self.bb.get(self._key("tsrs"))
+        tsrs = self.bb.get(self._key(self._tsrs_key))
         timeout = self.bb.get(self._key("timeout"))
         try:
             path = arm.plan_to_tsrs(tsrs, timeout=timeout)

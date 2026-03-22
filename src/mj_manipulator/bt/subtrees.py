@@ -28,16 +28,16 @@ from mj_manipulator.bt.nodes import (
 )
 
 
-def plan_and_execute(ns: str) -> py_trees.composites.Sequence:
+def plan_and_execute(ns: str, tsrs_key: str = "tsrs") -> py_trees.composites.Sequence:
     """Plan to TSRs, retime, execute.
 
-    Requires on blackboard: ``{ns}/arm``, ``{ns}/tsrs``, ``{ns}/timeout``
+    Requires on blackboard: ``{ns}/arm``, ``{ns}/{tsrs_key}``, ``{ns}/timeout``
     """
     return py_trees.composites.Sequence(
         name="plan_and_execute",
         memory=True,
         children=[
-            PlanToTSRs(ns=ns),
+            PlanToTSRs(ns=ns, tsrs_key=tsrs_key),
             Retime(ns=ns),
             Execute(ns=ns),
         ],
@@ -48,7 +48,7 @@ def pickup(ns: str) -> py_trees.composites.Sequence:
     """Full pickup: plan → execute → grasp → lift.
 
     Requires on blackboard:
-        ``{ns}/arm``, ``{ns}/tsrs``, ``{ns}/timeout``,
+        ``{ns}/arm``, ``{ns}/grasp_tsrs``, ``{ns}/timeout``,
         ``{ns}/arm_name``, ``{ns}/object_name``
 
     Sets ``{ns}/twist`` and ``{ns}/distance`` for the lift.
@@ -71,7 +71,7 @@ def pickup(ns: str) -> py_trees.composites.Sequence:
         name="pickup",
         memory=True,
         children=[
-            plan_and_execute(ns),
+            plan_and_execute(ns, tsrs_key="grasp_tsrs"),
             Sync(ns=ns),
             Grasp(ns=ns),
             Sync(ns=ns),
@@ -136,14 +136,14 @@ def pickup_with_recovery(ns: str) -> py_trees.composites.Selector:
 def place(ns: str) -> py_trees.composites.Sequence:
     """Place: plan to place TSRs → execute → release.
 
-    Requires: ``{ns}/arm``, ``{ns}/tsrs``, ``{ns}/timeout``,
+    Requires: ``{ns}/arm``, ``{ns}/place_tsrs``, ``{ns}/timeout``,
     ``{ns}/arm_name``, ``/context``
     """
     return py_trees.composites.Sequence(
         name="place",
         memory=True,
         children=[
-            plan_and_execute(ns),
+            plan_and_execute(ns, tsrs_key="place_tsrs"),
             Sync(ns=ns),
             Release(ns=ns),
             Sync(ns=ns),
