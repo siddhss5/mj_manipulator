@@ -44,8 +44,8 @@ class _ManipulationNode(py_trees.behaviour.Behaviour):
 class PlanToTSRs(_ManipulationNode):
     """Plan a collision-free path to a set of TSR goals.
 
-    Reads: ``{ns}/arm``, ``{ns}/tsrs``, ``{ns}/timeout``
-    Writes: ``{ns}/path``
+    Reads: ``{ns}/arm``, ``{ns}/{tsrs_key}``, ``{ns}/timeout``
+    Writes: ``{ns}/path``, ``{ns}/goal_tsr_index``
     """
 
     def __init__(self, ns: str = "", tsrs_key: str = "tsrs", name: str = "PlanToTSRs"):
@@ -55,18 +55,20 @@ class PlanToTSRs(_ManipulationNode):
         self.bb.register_key(key=self._key(tsrs_key), access=Access.READ)
         self.bb.register_key(key=self._key("timeout"), access=Access.READ)
         self.bb.register_key(key=self._key("path"), access=Access.WRITE)
+        self.bb.register_key(key=self._key("goal_tsr_index"), access=Access.WRITE)
 
     def update(self) -> Status:
         arm = self.bb.get(self._key("arm"))
         tsrs = self.bb.get(self._key(self._tsrs_key))
         timeout = self.bb.get(self._key("timeout"))
         try:
-            path = arm.plan_to_tsrs(tsrs, timeout=timeout)
+            result = arm.plan_to_tsrs(tsrs, timeout=timeout, return_details=True)
         except Exception:
-            path = None
-        if path is None:
+            result = None
+        if result is None or not result.success:
             return Status.FAILURE
-        self.bb.set(self._key("path"), path)
+        self.bb.set(self._key("path"), result.path)
+        self.bb.set(self._key("goal_tsr_index"), result.goal_index)
         return Status.SUCCESS
 
 
@@ -142,6 +144,10 @@ class Grasp(_ManipulationNode):
 
     Reads: ``/context``, ``{ns}/arm_name``, ``{ns}/object_name``
     Writes: ``{ns}/grasped``
+
+    If ``{ns}/tsr_to_object`` (list mapping TSR index → object name) and
+    ``{ns}/goal_tsr_index`` are set, resolves the actual object name from
+    the planner's goal index. This enables "pick any object" workflows.
     """
 
     def __init__(self, ns: str = "", name: str = "Grasp"):
@@ -150,11 +156,23 @@ class Grasp(_ManipulationNode):
         self.bb.register_key(key=self._key("arm_name"), access=Access.READ)
         self.bb.register_key(key=self._key("object_name"), access=Access.READ)
         self.bb.register_key(key=self._key("grasped"), access=Access.WRITE)
+        self.bb.register_key(key=self._key("goal_tsr_index"), access=Access.READ)
+        self.bb.register_key(key=self._key("tsr_to_object"), access=Access.READ)
 
     def update(self) -> Status:
         ctx = self.bb.get("/context")
         arm_name = self.bb.get(self._key("arm_name"))
         obj = self.bb.get(self._key("object_name"))
+
+        # Resolve actual object from planner's goal index if available
+        try:
+            tsr_to_obj = self.bb.get(self._key("tsr_to_object"))
+            goal_idx = self.bb.get(self._key("goal_tsr_index"))
+            if tsr_to_obj is not None and goal_idx is not None and goal_idx < len(tsr_to_obj):
+                obj = tsr_to_obj[goal_idx]
+        except KeyError:
+            pass
+
         grasped = ctx.arm(arm_name).grasp(obj)
         self.bb.set(self._key("grasped"), grasped)
         return Status.SUCCESS if grasped else Status.FAILURE

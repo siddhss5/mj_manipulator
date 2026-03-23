@@ -425,6 +425,7 @@ class Arm:
         timeout: float | None = None,
         seed: int | None = None,
         planner_config: CBiRRTConfig | None = None,
+        return_details: bool = False,
     ) -> list[np.ndarray] | None:
         """Plan to a TSR-defined goal region.
 
@@ -437,9 +438,12 @@ class Arm:
             timeout: Planning timeout in seconds (default from planning_defaults).
             seed: RNG seed for reproducibility.
             planner_config: Override planner configuration.
+            return_details: If True, return pycbirrt PlanResult with indices
+                and stats instead of just the path.
 
         Returns:
             Path to a goal satisfying the TSRs, or None if failed.
+            If return_details=True, returns pycbirrt.PlanResult instead.
         """
         if self.ik_solver is None:
             raise RuntimeError(
@@ -453,6 +457,7 @@ class Arm:
             goal_tsrs=goal_tsrs,
             constraint_tsrs=constraint_tsrs,
             seed=seed,
+            return_details=return_details,
         )
 
     def plan_to_pose(
