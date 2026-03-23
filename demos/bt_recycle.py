@@ -273,10 +273,12 @@ def run(robot_type, *, physics=False, headless=False, cycles=3):
             tree.tick()
 
             if root.status == Status.SUCCESS:
-                # Determine which can was actually grasped via goal_tsr_index
-                goal_idx = bb.get(f"{ns}/goal_tsr_index")
-                grasped_can = tsr_to_can[goal_idx] if goal_idx < len(tsr_to_can) else remaining_cans[0]
-                print(f"  Picked up and placed {grasped_can} (TSR index {goal_idx})")
+                # The Grasp node resolved the object from tsr_to_object
+                # and wrote it to object_name and grasped
+                grasped_can = bb.get(f"{ns}/grasped")
+                if grasped_can is None:
+                    grasped_can = remaining_cans[0]
+                print(f"  Picked up and placed {grasped_can}")
 
                 if not physics:
                     env.hide_freebody(grasped_can)
