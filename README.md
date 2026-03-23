@@ -240,14 +240,31 @@ from mj_manipulator.arms.my_robot import create_my_robot_arm
 __all__ = [..., "create_my_robot_arm"]
 ```
 
-## Demos
+## Behavior Trees
 
-See [demos/README.md](demos/README.md) for the full list. The capstone demo runs both robots end-to-end:
+Optional `mj_manipulator.bt` subpackage provides py_trees leaf nodes for composing manipulation tasks as behavior trees. Install with `pip install mj_manipulator[bt]`.
+
+**Leaf nodes:** `PlanToTSRs`, `PlanToConfig`, `Retime`, `Execute`, `Grasp`, `Release`, `CartesianMove`, `Sync`
+
+**Subtree builders:** `pickup_with_recovery`, `place_with_recovery`, `plan_and_execute`, `recover`
+
+```python
+from mj_manipulator.bt import pickup_with_recovery
+import py_trees
+
+tree = pickup_with_recovery("/ur5e")
+print(py_trees.display.ascii_tree(tree))
+```
+
+All nodes use namespaced blackboard keys (`{ns}/arm`, `{ns}/grasp_tsrs`, etc.) for multi-arm support. Robot-specific packages (e.g., geodude) compose these into task-level trees.
+
+## Demos
 
 ```bash
 cd mj_manipulator
-uv run mjpython demos/recycling.py --robot both   # UR5e + Franka recycling demo
+uv run mjpython demos/recycling.py --robot both      # UR5e + Franka recycling
+uv run mjpython demos/bt_recycle.py --robot ur5e      # Same task, behavior tree orchestration
 uv run mjpython demos/recycling.py --robot ur5e --headless
-uv run python demos/ik_solver.py                  # EAIK analytical IK showcase
-uv run python demos/arm_planning.py               # Motion planning with CBiRRT
+uv run python demos/ik_solver.py                      # EAIK analytical IK
+uv run python demos/arm_planning.py                   # Motion planning with CBiRRT
 ```
