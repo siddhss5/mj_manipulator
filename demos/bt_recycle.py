@@ -227,6 +227,7 @@ def run(robot_type, *, physics=False, headless=False, cycles=3):
         bb = py_trees.blackboard.Client(name="demo")
         for key in ["/context", f"{ns}/arm", f"{ns}/arm_name",
                      f"{ns}/grasp_tsrs", f"{ns}/place_tsrs", f"{ns}/grasped",
+                     f"{ns}/goal_tsr_index", f"{ns}/tsr_to_object",
                      f"{ns}/timeout", f"{ns}/object_name", f"{ns}/goal_config",
                      f"{ns}/step_fn"]:
             bb.register_key(key=key, access=Access.WRITE)
@@ -241,27 +242,46 @@ def run(robot_type, *, physics=False, headless=False, cycles=3):
         # Set place TSRs once (same for all cycles)
         bb.set(f"{ns}/place_tsrs", make_place_tsrs())
 
-        for cycle, body_name in enumerate(CAN_BODY_NAMES[:cycles], 1):
-            if not ctx.is_running():
+        # Track which TSRs belong to which can (for goal_tsr_index lookup)
+        remaining_cans = list(CAN_BODY_NAMES[:cycles])
+
+        for cycle in range(1, cycles + 1):
+            if not ctx.is_running() or not remaining_cans:
                 break
 
-            print(f"\n--- Cycle {cycle}: {body_name} ---")
-            T_center = env.get_body_pose(body_name)
-            print(f"  Can at: {T_center[:3, 3].round(3)}")
+            print(f"\n--- Cycle {cycle}: {len(remaining_cans)} cans remaining ---")
 
-            # Set per-cycle blackboard values
-            bb.set(f"{ns}/grasp_tsrs", make_grasp_tsrs(T_center, robot_type))
-            bb.set(f"{ns}/object_name", body_name)
+            # Combine grasp TSRs from ALL remaining cans
+            all_grasp_tsrs = []
+            tsr_to_can = []  # maps TSR index → can body name
+            for body_name in remaining_cans:
+                T_center = env.get_body_pose(body_name)
+                tsrs = make_grasp_tsrs(T_center, robot_type)
+                for _ in tsrs:
+                    tsr_to_can.append(body_name)
+                all_grasp_tsrs.extend(tsrs)
 
-            # Reset tree and tick (synchronous — runs full pickup+place in one tick)
+            print(f"  {len(all_grasp_tsrs)} TSRs from {len(remaining_cans)} cans")
+
+            bb.set(f"{ns}/grasp_tsrs", all_grasp_tsrs)
+            bb.set(f"{ns}/tsr_to_object", tsr_to_can)
+            bb.set(f"{ns}/object_name", remaining_cans[0])  # fallback
+
+            # Reset tree and tick
             for node in root.iterate():
                 node.status = Status.INVALID
             tree.tick()
 
             if root.status == Status.SUCCESS:
-                print(f"  Picked up and placed {body_name}")
+                # Determine which can was actually grasped via goal_tsr_index
+                goal_idx = bb.get(f"{ns}/goal_tsr_index")
+                grasped_can = tsr_to_can[goal_idx] if goal_idx < len(tsr_to_can) else remaining_cans[0]
+                print(f"  Picked up and placed {grasped_can} (TSR index {goal_idx})")
+
                 if not physics:
-                    env.hide_freebody(body_name)
+                    env.hide_freebody(grasped_can)
+                remaining_cans.remove(grasped_can)
+
                 # Return home
                 try:
                     home_path = arm.plan_to_configuration(home, timeout=10.0)
