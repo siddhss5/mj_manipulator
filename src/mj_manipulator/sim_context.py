@@ -87,19 +87,36 @@ class SimArmController:
                 candidate_objects=[object_name],
             )
         else:
-            # Kinematic: direct close, assume success
-            gripper.kinematic_close()
-            grasped = object_name
+            # Kinematic: close incrementally with contact detection
+            grasped = gripper.kinematic_close()
+            if grasped is None:
+                logger.warning(
+                    "Kinematic grasp: no contact detected with %s "
+                    "(gripper pos=%.2f)", object_name,
+                    gripper.get_actual_position(),
+                )
 
         if grasped and self._arm.grasp_manager is not None:
             self._arm.grasp_manager.mark_grasped(grasped, arm_name)
-            # Attach object to gripper body for kinematic tracking.
-            # In physics mode, friction holds the object during execution,
-            # but the attachment is still needed for collision checking during
-            # planning (so the checker can move the object with the gripper).
             self._arm.grasp_manager.attach_object(
                 grasped, gripper.attachment_body,
             )
+
+            # Log attachment quality
+            import mujoco
+            model = self._context._model
+            data = self._context._data
+            grip_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, gripper.attachment_body)
+            obj_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, grasped)
+            if grip_id >= 0 and obj_id >= 0:
+                grip_pos = data.xpos[grip_id]
+                obj_pos = data.xpos[obj_id]
+                dist = float(np.linalg.norm(grip_pos - obj_pos))
+                logger.info(
+                    "Attached %s to %s (dist=%.3fm, grip=%s, obj=%s)",
+                    grasped, gripper.attachment_body, dist,
+                    grip_pos.round(3), obj_pos.round(3),
+                )
 
         self._context.sync()
         return grasped

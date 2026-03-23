@@ -42,8 +42,10 @@ _BODY_SUFFIXES = [
     "left_follower", "left_pad",
 ]
 
-# Default attachment body suffix (finger pad that contacts objects).
-_ATTACHMENT_BODY_SUFFIX = "right_follower"
+# Attachment body for kinematic tracking. Using base_mount (gripper center)
+# rather than a finger pad — base_mount doesn't move when fingers close,
+# so the attachment offset is stable regardless of finger position.
+_ATTACHMENT_BODY_SUFFIX = "base_mount"
 
 # Pre-recorded gripper joint trajectory from physics simulation.
 # Shape: (101, 8) — 101 waypoints from open (t=0) to closed (t=1), 8 joints.

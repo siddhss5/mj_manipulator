@@ -106,7 +106,7 @@ class TestRobotiqGripperConstruction:
         assert "left_follower" in names
 
     def test_attachment_body(self, robotiq_gripper):
-        assert robotiq_gripper.attachment_body == "right_follower"
+        assert robotiq_gripper.attachment_body == "base_mount"
 
     def test_initially_not_holding(self, robotiq_gripper):
         assert not robotiq_gripper.is_holding
