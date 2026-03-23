@@ -102,22 +102,6 @@ class SimArmController:
                 grasped, gripper.attachment_body,
             )
 
-            # Log attachment quality
-            import mujoco
-            model = self._context._model
-            data = self._context._data
-            grip_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, gripper.attachment_body)
-            obj_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, grasped)
-            if grip_id >= 0 and obj_id >= 0:
-                grip_pos = data.xpos[grip_id]
-                obj_pos = data.xpos[obj_id]
-                dist = float(np.linalg.norm(grip_pos - obj_pos))
-                logger.info(
-                    "Attached %s to %s (dist=%.3fm, grip=%s, obj=%s)",
-                    grasped, gripper.attachment_body, dist,
-                    grip_pos.round(3), obj_pos.round(3),
-                )
-
         self._context.sync()
         return grasped
 
