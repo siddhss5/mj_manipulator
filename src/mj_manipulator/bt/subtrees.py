@@ -18,6 +18,7 @@ import py_trees
 
 from mj_manipulator.bt.nodes import (
     CartesianMove,
+    CheckNotNearConfig,
     Execute,
     Grasp,
     PlanToConfig,
@@ -84,7 +85,10 @@ def pickup(ns: str) -> py_trees.composites.Sequence:
 
 
 def recover(ns: str) -> py_trees.composites.Sequence:
-    """Recovery: release → retract up → plan home → execute.
+    """Recovery: release → retract up (if needed) → plan home → execute.
+
+    Skips the retract if the arm is already near home — avoids the
+    visible "shake" when recovery runs on an arm that never moved.
 
     Requires: ``{ns}/arm``, ``{ns}/arm_name``, ``{ns}/goal_config``,
     ``{ns}/timeout``, ``/context``
@@ -102,14 +106,26 @@ def recover(ns: str) -> py_trees.composites.Sequence:
         overwrite=True,
     )
 
+    # Only retract if arm has moved away from home
+    guarded_retract = py_trees.composites.Sequence(
+        name="retract_if_needed",
+        memory=True,
+        children=[
+            CheckNotNearConfig(ns=ns),
+            set_retract_twist,
+            set_retract_distance,
+            CartesianMove(ns=ns),
+        ],
+    )
+
     return py_trees.composites.Sequence(
         name="recover",
         memory=True,
         children=[
             Release(ns=ns),
-            set_retract_twist,
-            set_retract_distance,
-            CartesianMove(ns=ns),
+            py_trees.decorators.FailureIsSuccess(
+                name="optional_retract", child=guarded_retract,
+            ),
             PlanToConfig(ns=ns),
             Retime(ns=ns),
             Execute(ns=ns),

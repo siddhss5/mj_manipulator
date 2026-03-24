@@ -14,6 +14,7 @@ Requires: ``pip install mj_manipulator[bt]`` (py_trees >= 2.2)
 
 from mj_manipulator.bt.nodes import (
     CartesianMove,
+    CheckNotNearConfig,
     Execute,
     Grasp,
     PlanToConfig,
@@ -40,6 +41,7 @@ __all__ = [
     "Grasp",
     "Release",
     "CartesianMove",
+    "CheckNotNearConfig",
     "Sync",
     # Subtree builders
     "plan_and_execute",

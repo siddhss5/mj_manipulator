@@ -18,7 +18,6 @@ Blackboard layout::
     {ns}/grasped      — name of grasped object (after Grasp)
     {ns}/twist        — 6D twist for CartesianMove
     {ns}/distance     — max distance for CartesianMove
-    {ns}/step_fn      — optional step function for CartesianMove
 """
 
 from __future__ import annotations
@@ -226,6 +225,31 @@ class CartesianMove(_ManipulationNode):
 
         ctrl = CartesianController.from_arm(arm, step_fn=step_fn)
         ctrl.move(twist, dt=0.004, max_distance=distance)
+        return Status.SUCCESS
+
+
+class CheckNotNearConfig(_ManipulationNode):
+    """Succeed if arm is NOT near goal_config (i.e. needs recovery motion).
+
+    Returns FAILURE if arm is already near home — used as a guard to skip
+    unnecessary retract moves during recovery.
+
+    Reads: ``{ns}/arm``, ``{ns}/goal_config``
+    """
+
+    def __init__(self, ns: str = "", name: str = "CheckNotNearConfig",
+                 tolerance: float = 0.1):
+        super().__init__(name, ns)
+        self._tolerance = tolerance
+        self.bb.register_key(key=self._key("arm"), access=Access.READ)
+        self.bb.register_key(key=self._key("goal_config"), access=Access.READ)
+
+    def update(self) -> Status:
+        arm = self.bb.get(self._key("arm"))
+        goal = self.bb.get(self._key("goal_config"))
+        q = arm.get_joint_positions()
+        if np.max(np.abs(q - goal)) < self._tolerance:
+            return Status.FAILURE  # already near home, skip retract
         return Status.SUCCESS
 
 
