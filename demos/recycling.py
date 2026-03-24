@@ -313,9 +313,10 @@ def setup_franka():
 
 def cartesian_lift(ctx: SimContext, arm: Arm, height: float = 0.05) -> None:
     """Lift the EE straight up using Jacobian-based cartesian control."""
-    # In physics mode, pass ctx.step so mj_step runs (friction holds object).
-    step_fn = ctx.step if ctx._controller is not None else None
-    ctrl = CartesianController.from_arm(arm, step_fn=step_fn)
+    arm_name = arm.config.name
+    ctrl = CartesianController.from_arm(
+        arm, step_fn=lambda q, qd: ctx.step_cartesian(arm_name, q, qd),
+    )
     ctrl.move(
         np.array([0.0, 0.0, 0.10, 0.0, 0.0, 0.0]),  # 10 cm/s upward
         dt=0.004,
@@ -436,12 +437,15 @@ def run_recycling(
                 env.data.ctrl[arm.gripper.actuator_id] = arm.gripper.ctrl_open
             ctx.sync()
 
+        arm_name = arm.config.name
+        _step_fn = lambda q, qd: ctx.step_cartesian(arm_name, q, qd)
+
         def recover():
             """Release any held object, retract up, return home."""
             # Release anything held
-            ctx.arm(arm.config.name).release()
+            ctx.arm(arm_name).release()
             # Cartesian retract upward to clear collisions
-            ctrl = CartesianController.from_arm(arm, step_fn=step_fn)
+            ctrl = CartesianController.from_arm(arm, step_fn=_step_fn)
             ctrl.move(np.array([0., 0., 0.10, 0., 0., 0.]), dt=0.004, max_distance=0.10)
             # Plan home
             try:
@@ -451,8 +455,6 @@ def run_recycling(
             if home_path is not None:
                 ctx.execute(arm.retime(home_path))
             ctx.sync()
-
-        step_fn = ctx.step if ctx._controller is not None else None
 
         remaining = list(CAN_BODY_NAMES[:cycles])
 

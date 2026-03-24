@@ -207,17 +207,23 @@ class CartesianMove(_ManipulationNode):
     def __init__(self, ns: str = "", name: str = "CartesianMove"):
         super().__init__(name, ns)
         self.bb.register_key(key=self._key("arm"), access=Access.READ)
+        self.bb.register_key(key=self._key("arm_name"), access=Access.READ)
         self.bb.register_key(key=self._key("twist"), access=Access.READ)
         self.bb.register_key(key=self._key("distance"), access=Access.READ)
-        self.bb.register_key(key=self._key("step_fn"), access=Access.READ)
+        self.bb.register_key(key="/context", access=Access.READ)
 
     def update(self) -> Status:
         from mj_manipulator.cartesian import CartesianController
 
         arm = self.bb.get(self._key("arm"))
+        arm_name = self.bb.get(self._key("arm_name"))
         twist = self.bb.get(self._key("twist"))
         distance = self.bb.get(self._key("distance"))
-        step_fn = self.bb.get(self._key("step_fn"))
+        ctx = self.bb.get("/context")
+
+        def step_fn(q, qd):
+            ctx.step_cartesian(arm_name, q, qd)
+
         ctrl = CartesianController.from_arm(arm, step_fn=step_fn)
         ctrl.move(twist, dt=0.004, max_distance=distance)
         return Status.SUCCESS

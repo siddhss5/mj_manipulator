@@ -221,15 +221,12 @@ def run(robot_type, *, physics=False, headless=False, cycles=3):
                 env.data.ctrl[arm.gripper.actuator_id] = arm.gripper.ctrl_open
             ctx.sync()
 
-        step_fn = ctx.step if ctx._controller is not None else None
-
         # Set up blackboard
         bb = py_trees.blackboard.Client(name="demo")
         for key in ["/context", f"{ns}/arm", f"{ns}/arm_name",
                      f"{ns}/grasp_tsrs", f"{ns}/place_tsrs", f"{ns}/grasped",
                      f"{ns}/goal_tsr_index", f"{ns}/tsr_to_object",
-                     f"{ns}/timeout", f"{ns}/object_name", f"{ns}/goal_config",
-                     f"{ns}/step_fn"]:
+                     f"{ns}/timeout", f"{ns}/object_name", f"{ns}/goal_config"]:
             bb.register_key(key=key, access=Access.WRITE)
 
         bb.set("/context", ctx)
@@ -237,7 +234,6 @@ def run(robot_type, *, physics=False, headless=False, cycles=3):
         bb.set(f"{ns}/arm_name", arm.config.name)
         bb.set(f"{ns}/timeout", 10.0)
         bb.set(f"{ns}/goal_config", home)
-        bb.set(f"{ns}/step_fn", step_fn)
 
         # Set place TSRs once (same for all cycles)
         bb.set(f"{ns}/place_tsrs", make_place_tsrs())

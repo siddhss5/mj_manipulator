@@ -478,7 +478,7 @@ class CartesianController:
         qd_max: np.ndarray,
         config: CartesianControlConfig | None = None,
         grasp_manager: "GraspManager | None" = None,
-        step_fn: "Callable[[], None] | None" = None,
+        step_fn: "Callable[[np.ndarray, np.ndarray], None] | None" = None,
     ):
         """
         Args:
@@ -495,8 +495,10 @@ class CartesianController:
                 poses during motion. If provided, attached objects follow the
                 gripper automatically during step/move/move_to.
             step_fn: Function to advance the simulation after each control step.
-                In physics mode, this should call mj_step (via ctx.step()) so
-                dynamics are simulated. Defaults to mj_forward (kinematic).
+                Called with ``(q_new, qd_new)`` — joint positions and velocities
+                computed by the Cartesian solver. In physics mode, this should
+                route through ``ctx.step_cartesian(arm_name, q, qd)``. Defaults
+                to writing qpos directly + ``mj_forward`` (kinematic).
         """
         self.model = model
         self.data = data
@@ -516,7 +518,7 @@ class CartesianController:
         cls,
         arm: "Arm",
         config: CartesianControlConfig | None = None,
-        step_fn: "Callable[[], None] | None" = None,
+        step_fn: "Callable[[np.ndarray, np.ndarray], None] | None" = None,
     ) -> "CartesianController":
         """Create a CartesianController from an Arm instance."""
         q_min, q_max = arm.get_joint_limits()
@@ -576,10 +578,19 @@ class CartesianController:
             q_dot_prev=self._q_dot_prev,
         )
         self._q_dot_prev = result.joint_velocities
-        for i, idx in enumerate(self.joint_qpos_indices):
-            self.data.qpos[idx] = q_new[i]
-        if self.grasp_manager is not None:
-            self.grasp_manager.update_attached_poses(self.data)
+
+        # Route through step function (ctx.step_cartesian in physics mode,
+        # direct qpos write + mj_forward in kinematic mode)
+        step_fn = self._default_step_fn
+        if step_fn is not None:
+            step_fn(q_new, result.joint_velocities)
+        else:
+            for i, idx in enumerate(self.joint_qpos_indices):
+                self.data.qpos[idx] = q_new[i]
+            mujoco.mj_forward(self.model, self.data)
+            if self.grasp_manager is not None:
+                self.grasp_manager.update_attached_poses(self.data)
+
         return result
 
     def move(
@@ -590,7 +601,6 @@ class CartesianController:
         max_duration: float = 5.0,
         max_distance: float | None = None,
         stop_condition: Callable[[], bool] | None = None,
-        step_fn: Callable[[], None] | None = None,
     ) -> TwistExecutionResult:
         """Execute a constant twist until a stop condition is met.
 
@@ -606,18 +616,10 @@ class CartesianController:
             max_duration: Stop after this many seconds.
             max_distance: Stop after EE moves this far (meters).
             stop_condition: Callable returning True to stop early.
-            step_fn: Advance simulation after each step. Defaults to
-                ``mj_forward`` for kinematic simulation.
 
         Returns:
             TwistExecutionResult describing why motion terminated.
         """
-        if step_fn is None:
-            step_fn = self._default_step_fn
-        if step_fn is None:
-            def step_fn():
-                mujoco.mj_forward(self.model, self.data)
-
         self.reset()
 
         t = 0.0
@@ -631,7 +633,6 @@ class CartesianController:
                 break
 
             result = self.step(twist, dt)
-            step_fn()
 
             current_pos = self.data.site_xpos[self.ee_site_id].copy()
             distance += float(np.linalg.norm(current_pos - last_pos))
@@ -662,7 +663,6 @@ class CartesianController:
         speed: float = 0.05,
         position_tol: float = 0.005,
         rotation_tol: float = 0.05,
-        step_fn: Callable[[], None] | None = None,
     ) -> TwistExecutionResult:
         """Move end-effector to a target pose.
 
@@ -677,19 +677,11 @@ class CartesianController:
                 proportionally at ``speed / config.length_scale`` (rad/s).
             position_tol: Convergence threshold for position (meters).
             rotation_tol: Convergence threshold for rotation (radians).
-            step_fn: Advance simulation after each step. Defaults to
-                ``mj_forward`` for kinematic simulation.
 
         Returns:
             TwistExecutionResult. ``terminated_by == "condition"`` means
             the target was reached within tolerance.
         """
-        if step_fn is None:
-            step_fn = self._default_step_fn
-        if step_fn is None:
-            def step_fn():
-                mujoco.mj_forward(self.model, self.data)
-
         self.reset()
 
         t = 0.0
@@ -717,7 +709,6 @@ class CartesianController:
             twist = np.concatenate([v, w])
 
             result = self.step(twist, dt)
-            step_fn()
 
             current_pos = self.data.site_xpos[self.ee_site_id].copy()
             distance += float(np.linalg.norm(current_pos - last_pos))
@@ -742,7 +733,6 @@ class CartesianController:
         gripper_body_names: list[str],
         *,
         max_distance: float = 0.2,
-        step_fn: Callable[[], None] | None = None,
     ) -> MoveUntilTouchResult:
         """Move along a twist until gripper contact is detected.
 
@@ -755,18 +745,10 @@ class CartesianController:
             dt: Control timestep (seconds).
             gripper_body_names: Body names of gripper parts to monitor.
             max_distance: Stop after EE moves this far without contact (meters).
-            step_fn: Advance simulation after each step. Defaults to
-                ``mj_forward`` for kinematic simulation.
 
         Returns:
             MoveUntilTouchResult. ``success=True`` if contact was detected.
         """
-        if step_fn is None:
-            step_fn = self._default_step_fn
-        if step_fn is None:
-            def step_fn():
-                mujoco.mj_forward(self.model, self.data)
-
         self.reset()
 
         distance = 0.0
@@ -781,7 +763,6 @@ class CartesianController:
                 break
 
             result = self.step(twist, dt)
-            step_fn()
 
             current_pos = self.data.site_xpos[self.ee_site_id].copy()
             distance += float(np.linalg.norm(current_pos - last_pos))

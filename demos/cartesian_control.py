@@ -45,7 +45,7 @@ def demo_teleop(arm, label):
     print_header(f"{label} — Teleop (step, 125 Hz × 2 s)")
 
     controller = CartesianController.from_arm(arm)
-    model, data = arm.env.model, arm.env.data
+    data = arm.env.data
     ee_id = arm.ee_site_id
 
     dt = 0.008        # 125 Hz
@@ -57,7 +57,6 @@ def demo_teleop(arm, label):
 
     for _ in range(n_steps):
         result = controller.step(twist, dt)
-        mujoco.mj_forward(model, data)
         fractions.append(result.achieved_fraction)
 
     ee_end = data.site_xpos[ee_id].copy()
@@ -79,13 +78,11 @@ def demo_move(arm, label):
     print_header(f"{label} — Scripted Move (move, 3 cm -Z)")
 
     controller = CartesianController.from_arm(arm)
-    model, data = arm.env.model, arm.env.data
 
     result = controller.move(
         twist=np.array([0, 0, -0.05, 0, 0, 0]),
         dt=0.008,
         max_distance=0.03,
-        step_fn=lambda: mujoco.mj_forward(model, data),
     )
 
     print(f"\n  Terminated: {result.terminated_by}")
@@ -116,7 +113,6 @@ def demo_move_to(arm, label):
         speed=0.05,
         position_tol=0.002,
         rotation_tol=0.05,
-        step_fn=lambda: mujoco.mj_forward(model, data),
     )
 
     pos_err = np.linalg.norm(target[:3, 3] - data.site_xpos[ee_id])
