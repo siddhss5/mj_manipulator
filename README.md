@@ -135,6 +135,24 @@ checker.is_valid(q)   # allows gripper↔can; rejects arm↔can, can↔env
 
 See [docs/grasp-aware-collision.md](docs/grasp-aware-collision.md) for the filtering logic, live vs snapshot modes for parallel planning, and the complete grasp lifecycle.
 
+## Force/Torque Sensing
+
+Arms can expose a wrist F/T sensor via `ArmConfig`. In physics mode, MuJoCo populates `data.sensordata` each step with force and torque readings (with configurable noise).
+
+```python
+config = ArmConfig(
+    ...,
+    ft_force_sensor="ur5e/ft_sensor_force",
+    ft_torque_sensor="ur5e/ft_sensor_torque",
+)
+arm = Arm(env, config)
+
+# In a control loop:
+wrench = arm.get_ft_wrench()  # [fx, fy, fz, tx, ty, tz]
+if np.linalg.norm(wrench[:3]) > 10.0:
+    print("Contact detected!")
+```
+
 ## Architecture
 
 ```
