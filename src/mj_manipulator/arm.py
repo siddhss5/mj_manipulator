@@ -200,6 +200,28 @@ class Arm:
         self.dof = len(config.joint_names)
         self._joint_limits: tuple[np.ndarray, np.ndarray] | None = None
 
+        # Resolve F/T sensor indices (if configured)
+        self._ft_force_adr: int | None = None
+        self._ft_torque_adr: int | None = None
+        if config.ft_force_sensor:
+            sid = mujoco.mj_name2id(
+                model, mujoco.mjtObj.mjOBJ_SENSOR, config.ft_force_sensor,
+            )
+            if sid == -1:
+                raise ValueError(
+                    f"Force sensor '{config.ft_force_sensor}' not found"
+                )
+            self._ft_force_adr = model.sensor_adr[sid]
+        if config.ft_torque_sensor:
+            sid = mujoco.mj_name2id(
+                model, mujoco.mjtObj.mjOBJ_SENSOR, config.ft_torque_sensor,
+            )
+            if sid == -1:
+                raise ValueError(
+                    f"Torque sensor '{config.ft_torque_sensor}' not found"
+                )
+            self._ft_torque_adr = model.sensor_adr[sid]
+
     # -----------------------------------------------------------------
     # State queries
     # -----------------------------------------------------------------
@@ -215,6 +237,37 @@ class Arm:
         return np.array([
             self.env.data.qvel[idx] for idx in self.joint_qvel_indices
         ])
+
+    def get_ft_wrench(self) -> np.ndarray:
+        """Current wrist force/torque reading as [fx, fy, fz, tx, ty, tz].
+
+        Returns the 6D wrench from the wrist F/T sensor in the sensor
+        frame. Requires ``ft_force_sensor`` and ``ft_torque_sensor`` to
+        be set in ArmConfig.
+
+        In physics mode, MuJoCo populates sensor data each ``mj_step``.
+        In kinematic mode, sensor readings are zero (no dynamics).
+
+        Returns:
+            np.ndarray of shape (6,): [fx, fy, fz, tx, ty, tz].
+
+        Raises:
+            RuntimeError: If no F/T sensor is configured.
+        """
+        if self._ft_force_adr is None or self._ft_torque_adr is None:
+            raise RuntimeError(
+                "No F/T sensor configured. Set ft_force_sensor and "
+                "ft_torque_sensor in ArmConfig."
+            )
+        data = self.env.data
+        force = data.sensordata[self._ft_force_adr:self._ft_force_adr + 3]
+        torque = data.sensordata[self._ft_torque_adr:self._ft_torque_adr + 3]
+        return np.concatenate([force, torque])
+
+    @property
+    def has_ft_sensor(self) -> bool:
+        """Whether this arm has a wrist F/T sensor configured."""
+        return self._ft_force_adr is not None and self._ft_torque_adr is not None
 
     def get_ee_pose(self) -> np.ndarray:
         """Current end-effector pose as 4x4 homogeneous transform.

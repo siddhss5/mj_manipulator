@@ -70,6 +70,8 @@ class ArmConfig(EntityConfig):
     kinematic_limits: KinematicLimits  # required: robot-specific velocity/acceleration limits
     ee_site: str = ""  # MuJoCo site name for Jacobian / FK
     tcp_offset: np.ndarray | None = None  # 4x4 SE3 from ee_site to tool center point
+    ft_force_sensor: str | None = None  # MuJoCo force sensor name (3-axis)
+    ft_torque_sensor: str | None = None  # MuJoCo torque sensor name (3-axis)
     planning_defaults: PlanningDefaults = field(default_factory=PlanningDefaults)
 
     def __post_init__(self):
