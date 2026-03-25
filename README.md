@@ -58,7 +58,7 @@ arm = create_franka_arm(env)
 
 ## Planning API
 
-All planning methods are thin pass-throughs to the underlying planner ([pycbirrt](https://github.com/siddhss5/pycbirrt)). If the planner supports a goal type natively, we delegate directly.
+All planning methods are thin pass-throughs to the underlying planner ([pycbirrt](https://github.com/personalrobotics/pycbirrt)). If the planner supports a goal type natively, we delegate directly.
 
 | Method | Goal type | What the planner receives |
 |---|---|---|

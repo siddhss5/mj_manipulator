@@ -14,7 +14,7 @@ dependencies = [
     "scipy",
     "toppra>=0.6.3",
     "mj-environment @ git+https://github.com/personalrobotics/mj_environment.git",
-    "pycbirrt @ git+https://github.com/siddhss5/pycbirrt.git",
+    "pycbirrt @ git+https://github.com/personalrobotics/pycbirrt.git",
     "tsr @ git+https://github.com/personalrobotics/tsr.git",
     "eaik",
     "prl-assets @ git+https://github.com/personalrobotics/prl_assets.git",
