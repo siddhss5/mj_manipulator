@@ -225,6 +225,12 @@ class SimContext:
             )
             self._owns_viewer = True
 
+            # Apply model's camera defaults (launch_passive overrides them)
+            self._viewer.cam.azimuth = self._model.vis.global_.azimuth
+            self._viewer.cam.elevation = self._model.vis.global_.elevation
+            self._viewer.cam.distance = self._model.stat.extent * 1.5
+            self._viewer.cam.lookat[:] = self._model.stat.center
+
         # Viewer sync interval
         if self._viewer_fps <= 0 or self._viewer_fps == float("inf"):
             viewer_sync_interval = 0.0
@@ -252,7 +258,7 @@ class SimContext:
 
     # -- ExecutionContext protocol -------------------------------------------
 
-    def execute(self, item) -> bool:
+    def execute(self, item: object) -> bool:
         """Execute a trajectory or plan result.
 
         Routes each trajectory to the appropriate executor based on its
@@ -376,7 +382,7 @@ class SimContext:
         return 0.004
 
     @property
-    def viewer(self):
+    def viewer(self) -> mujoco.viewer.Handle | None:
         """MuJoCo viewer, or None in headless mode."""
         return self._viewer
 
