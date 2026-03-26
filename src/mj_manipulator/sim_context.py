@@ -61,14 +61,15 @@ class SimArmController:
         self._arm = arm
         self._context = context
 
-    def grasp(self, object_name: str) -> str | None:
+    def grasp(self, object_name: str | None = None) -> str | None:
         """Close gripper and attempt to grasp an object.
 
         In physics mode: gradually closes the gripper with contact detection.
         In kinematic mode: directly closes and assumes grasp succeeds.
 
         Args:
-            object_name: Name of the object to grasp.
+            object_name: Name of the object to grasp, or None to grasp
+                whatever is between the fingers.
 
         Returns:
             Name of grasped object if successful, None otherwise.
@@ -77,22 +78,24 @@ class SimArmController:
         if gripper is None:
             return None
 
-        gripper.set_candidate_objects([object_name])
+        candidates = [object_name] if object_name else None
+        gripper.set_candidate_objects(candidates)
         arm_name = self._arm.config.name
 
         if self._context._controller is not None:
             # Physics: realistic gripper close with contact detection
             grasped = self._context._controller.close_gripper(
                 arm_name,
-                candidate_objects=[object_name],
+                candidate_objects=candidates,
             )
         else:
             # Kinematic: close incrementally with contact detection
             grasped = gripper.kinematic_close()
             if grasped is None:
                 logger.warning(
-                    "Kinematic grasp: no contact detected with %s "
-                    "(gripper pos=%.2f)", object_name,
+                    "Kinematic grasp: no contact detected%s "
+                    "(gripper pos=%.2f)",
+                    f" with {object_name}" if object_name else "",
                     gripper.get_actual_position(),
                 )
 
