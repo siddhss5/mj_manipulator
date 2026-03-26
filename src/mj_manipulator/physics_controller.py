@@ -194,10 +194,18 @@ class PhysicsController:
     # -- Target management --------------------------------------------------
 
     def hold_all(self) -> None:
-        """Update all arm targets to current positions."""
+        """Update all targets (arms, entities, grippers) to current positions."""
         for state in self._arms.values():
             state.target_position = self.data.qpos[state.joint_qpos_indices].copy()
             state.target_velocity = np.zeros(len(state.actuator_ids))
+
+        for state in self._entities.values():
+            state.target_position = self.data.qpos[state.joint_qpos_indices].copy()
+            state.target_velocity = np.zeros(len(state.target_velocity))
+
+        for name, gs in self._grippers.items():
+            gs.target_ctrl = gs.ctrl_open
+            self.data.ctrl[gs.actuator_id] = gs.ctrl_open
 
     def set_arm_target(
         self,
