@@ -172,10 +172,10 @@ class Grasp(_ManipulationNode):
         except KeyError:
             pass
 
+        # Always write the resolved object name so diagnostics know what was attempted
+        self.bb.set(self._key("object_name"), obj)
         grasped = ctx.arm(arm_name).grasp(obj)
         self.bb.set(self._key("grasped"), grasped)
-        if grasped:
-            self.bb.set(self._key("object_name"), obj)
         return Status.SUCCESS if grasped else Status.FAILURE
 
 
