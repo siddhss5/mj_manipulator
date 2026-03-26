@@ -123,7 +123,7 @@ class _BaseGripper:
         """Close gripper kinematically until contact.
 
         Incrementally closes the gripper, checking for contact with candidate
-        objects at each step. Falls back to geometric proximity detection.
+        objects at each step.
 
         Args:
             steps: Number of incremental steps to check for contact.
@@ -154,10 +154,6 @@ class _BaseGripper:
                         or external_body in self._candidate_objects):
                     grasped = external_body
                     break
-
-        # Fallback: geometric proximity
-        if not grasped:
-            grasped = self._detect_grasp_geometric()
 
         return grasped
 
@@ -201,39 +197,3 @@ class _BaseGripper:
 
         return self_contact, candidate_body or first_external
 
-    def _detect_grasp_geometric(self) -> str | None:
-        """Detect grasp using geometric proximity to candidate objects.
-
-        Checks if any candidate object's center is within a threshold
-        of the average gripper body position.
-
-        Returns:
-            Name of closest object within threshold, or None.
-        """
-        if not self._candidate_objects:
-            return None
-
-        # Average of gripper body positions (using cached IDs)
-        if not self._gripper_body_ids:
-            return None
-
-        positions = [self._data.xpos[bid] for bid in self._gripper_body_ids]
-        gripper_pos = np.mean(positions, axis=0)
-        threshold = 0.05
-
-        closest_obj = None
-        closest_dist = float("inf")
-
-        for obj_name in self._candidate_objects:
-            body_id = mujoco.mj_name2id(
-                self._model, mujoco.mjtObj.mjOBJ_BODY, obj_name,
-            )
-            if body_id == -1:
-                continue
-
-            dist = float(np.linalg.norm(self._data.xpos[body_id] - gripper_pos))
-            if dist < threshold and dist < closest_dist:
-                closest_obj = obj_name
-                closest_dist = dist
-
-        return closest_obj
