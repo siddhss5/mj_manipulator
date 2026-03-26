@@ -222,6 +222,7 @@ class SimContext:
         if self._viewer is None and not self._headless:
             self._viewer = mujoco.viewer.launch_passive(
                 self._model, self._data,
+                show_left_ui=False, show_right_ui=False,
             )
             self._owns_viewer = True
 
