@@ -26,7 +26,7 @@ from py_trees.common import Access, Status
 from prl_assets import OBJECTS_DIR
 from tsr import TSR
 from tsr.hands import FrankaHand, Robotiq2F140
-from tsr.placement import TablePlacer
+from tsr.placement import StablePlacer
 
 from mj_manipulator.arms.franka import (
     FRANKA_HOME,
@@ -100,7 +100,7 @@ def setup_scene(robot_type):
 
     table_surface = np.eye(4)
     table_surface[:3, 3] = [table_center[0], table_center[1], table_half[2] * 2]
-    placer = TablePlacer(table_half[0], table_half[1])
+    placer = StablePlacer(table_half[0], table_half[1])
     place_templates = placer.place_cylinder(_CAN_GP["radius"], _CAN_GP["height"])
     can_body_offset_z = _CAN_GP["height"] / 2
     min_sep = _CAN_GP["radius"] * 3

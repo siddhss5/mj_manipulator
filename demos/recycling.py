@@ -58,7 +58,7 @@ from mj_manipulator.menagerie import menagerie_scene
 from mj_manipulator.sim_context import SimContext
 from prl_assets import OBJECTS_DIR
 from tsr.hands import FrankaHand, Robotiq2F140
-from tsr.placement import TablePlacer
+from tsr.placement import StablePlacer
 
 if TYPE_CHECKING:
     from mj_manipulator.arm import Arm
@@ -182,7 +182,7 @@ def _add_table_and_cans(spec: mujoco.MjSpec, n_cans: int = 3) -> None:
 
     table_surface = np.eye(4)
     table_surface[:3, 3] = [table_center[0], table_center[1], table_half[2] * 2]
-    placer = TablePlacer(table_half[0], table_half[1])
+    placer = StablePlacer(table_half[0], table_half[1])
     place_templates = placer.place_cylinder(_CAN_GP["radius"], _CAN_GP["height"])
 
     # The can XML has body pos="0 0 0.0615" (half-height offset baked in),
