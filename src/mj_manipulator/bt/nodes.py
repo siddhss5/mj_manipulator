@@ -140,6 +140,8 @@ class Execute(_ManipulationNode):
         ctx = self.bb.get("/context")
         traj = self.bb.get(self._key("trajectory"))
         ok = ctx.execute(traj)
+        if not ok:
+            self.feedback_message = "Trajectory execution failed"
         return Status.SUCCESS if ok else Status.FAILURE
 
 
@@ -181,6 +183,8 @@ class Grasp(_ManipulationNode):
         self.bb.set(self._key("object_name"), obj)
         grasped = ctx.arm(arm_name).grasp(obj)
         self.bb.set(self._key("grasped"), grasped)
+        if not grasped:
+            self.feedback_message = f"Grasp failed: no contact with {obj or 'any object'}"
         return Status.SUCCESS if grasped else Status.FAILURE
 
 

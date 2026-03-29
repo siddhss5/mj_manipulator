@@ -104,6 +104,12 @@ class SimArmController:
             self._arm.grasp_manager.attach_object(
                 grasped, gripper.attachment_body,
             )
+            logger.info("Grasped %s with %s arm", grasped, arm_name)
+        elif not grasped:
+            logger.info(
+                "Grasp failed: no object detected%s",
+                f" (target was {object_name})" if object_name else "",
+            )
 
         self._context.sync()
         return grasped

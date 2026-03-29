@@ -448,12 +448,17 @@ class Arm:
         """
         config = self._make_planner_config(timeout, planner_config)
         planner = self.create_planner(config)
-        return planner.plan(
+        path = planner.plan(
             start=self.get_joint_positions(),
             goal=q_goal,
             constraint_tsrs=constraint_tsrs,
             seed=seed,
         )
+        if path is not None:
+            logger.info("Plan to configuration succeeded: %d waypoints", len(path))
+        else:
+            logger.info("Plan to configuration failed")
+        return path
 
     def plan_to_configurations(
         self,
@@ -520,13 +525,26 @@ class Arm:
             )
         config = self._make_planner_config(timeout, planner_config)
         planner = self.create_planner(config)
-        return planner.plan(
+        result = planner.plan(
             start=self.get_joint_positions(),
             goal_tsrs=goal_tsrs,
             constraint_tsrs=constraint_tsrs,
             seed=seed,
             return_details=return_details,
         )
+        if return_details:
+            if result is not None and result.success:
+                logger.info(
+                    "Plan to TSRs succeeded: %d waypoints in %.1fs",
+                    len(result.path), result.planning_time,
+                )
+            elif result is not None:
+                logger.info("Plan to TSRs failed: %s", result.failure_reason or "unknown")
+            else:
+                logger.info("Plan to TSRs failed: no result")
+        elif result is None:
+            logger.info("Plan to TSRs failed")
+        return result
 
     def plan_to_pose(
         self,
