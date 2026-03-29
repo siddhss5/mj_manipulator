@@ -215,6 +215,7 @@ class Arm:
         # Resolve F/T sensor indices (if configured)
         self._ft_force_adr: int | None = None
         self._ft_torque_adr: int | None = None
+        self.ft_site_id: int | None = None
         if config.ft_force_sensor:
             sid = mujoco.mj_name2id(
                 model, mujoco.mjtObj.mjOBJ_SENSOR, config.ft_force_sensor,
@@ -224,6 +225,7 @@ class Arm:
                     f"Force sensor '{config.ft_force_sensor}' not found"
                 )
             self._ft_force_adr = model.sensor_adr[sid]
+            self.ft_site_id = model.sensor_objid[sid]
         if config.ft_torque_sensor:
             sid = mujoco.mj_name2id(
                 model, mujoco.mjtObj.mjOBJ_SENSOR, config.ft_torque_sensor,
@@ -253,17 +255,24 @@ class Arm:
     def get_ft_wrench(self) -> np.ndarray:
         """Current wrist force/torque reading as [fx, fy, fz, tx, ty, tz].
 
-        Returns the 6D wrench from the wrist F/T sensor in the sensor
-        frame. Requires ``ft_force_sensor`` and ``ft_torque_sensor`` to
-        be set in ArmConfig.
+        Returns the 6D wrench from the wrist F/T sensor in the **sensor
+        local frame** (not world frame). The sensor reports the force
+        exerted on the child body (gripper) by the parent body (wrist).
 
         Only meaningful in **physics mode** (after ``mj_step``). Returns
         NaN in kinematic mode — MuJoCo's constraint solver produces
         large artifact values (100-300N) that do not correspond to
         physical wrist forces.
 
+        To transform to world frame::
+
+            wrench = arm.get_ft_wrench()
+            R = data.site_xmat[arm.ft_site_id].reshape(3, 3)
+            force_world = R @ wrench[:3]
+            torque_world = R @ wrench[3:]
+
         Returns:
-            np.ndarray of shape (6,): [fx, fy, fz, tx, ty, tz].
+            np.ndarray of shape (6,): [fx, fy, fz, tx, ty, tz] in sensor frame.
             All NaN if no physics step has been run.
 
         Raises:
