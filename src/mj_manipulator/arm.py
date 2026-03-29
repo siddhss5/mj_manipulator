@@ -257,14 +257,14 @@ class Arm:
         frame. Requires ``ft_force_sensor`` and ``ft_torque_sensor`` to
         be set in ArmConfig.
 
-        .. warning::
-            Requires **physics mode** (``mj_step``). In kinematic mode
-            (``mj_forward`` only), force/torque sensors return zero —
-            MuJoCo does not compute contact or actuator forces without
-            physics simulation.
+        Only meaningful in **physics mode** (after ``mj_step``). Returns
+        NaN in kinematic mode — MuJoCo's constraint solver produces
+        large artifact values (100-300N) that do not correspond to
+        physical wrist forces.
 
         Returns:
             np.ndarray of shape (6,): [fx, fy, fz, tx, ty, tz].
+            All NaN if no physics step has been run.
 
         Raises:
             RuntimeError: If no F/T sensor is configured.
@@ -275,6 +275,8 @@ class Arm:
                 "ft_torque_sensor in ArmConfig."
             )
         data = self.env.data
+        if data.time == 0.0:
+            return np.full(6, np.nan)
         force = data.sensordata[self._ft_force_adr:self._ft_force_adr + 3]
         torque = data.sensordata[self._ft_torque_adr:self._ft_torque_adr + 3]
         return np.concatenate([force, torque])
