@@ -167,6 +167,7 @@ class Arm:
         self.gripper: Gripper | None = gripper
         self.grasp_manager: GraspManager | None = grasp_manager
         self.ik_solver: IKSolver | None = ik_solver
+        self.ft_valid: bool = False  # Set by ExecutionContext when F/T is meaningful
 
         model = env.model
 
@@ -259,10 +260,11 @@ class Arm:
         local frame** (not world frame). The sensor reports the force
         exerted on the child body (gripper) by the parent body (wrist).
 
-        Only meaningful in **physics mode** (after ``mj_step``). Returns
-        NaN in kinematic mode — MuJoCo's constraint solver produces
-        large artifact values (100-300N) that do not correspond to
-        physical wrist forces.
+        Returns NaN when ``ft_valid`` is False (default). The execution
+        context sets ``ft_valid = True`` when F/T data is meaningful:
+        physics sim after ``mj_step``, or real hardware with a live
+        sensor. In kinematic sim, MuJoCo's constraint solver produces
+        artifact values (100-300N) that are not physical wrist forces.
 
         To transform to world frame::
 
@@ -283,9 +285,9 @@ class Arm:
                 "No F/T sensor configured. Set ft_force_sensor and "
                 "ft_torque_sensor in ArmConfig."
             )
-        data = self.env.data
-        if data.time == 0.0:
+        if not self.ft_valid:
             return np.full(6, np.nan)
+        data = self.env.data
         force = data.sensordata[self._ft_force_adr:self._ft_force_adr + 3]
         torque = data.sensordata[self._ft_torque_adr:self._ft_torque_adr + 3]
         return np.concatenate([force, torque])

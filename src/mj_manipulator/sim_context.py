@@ -253,6 +253,10 @@ class SimContext:
         else:
             self._setup_kinematic(viewer_sync_interval)
 
+        # Mark F/T sensors as valid in physics mode (always valid on hardware)
+        for arm in self._arms.values():
+            arm.ft_valid = self._physics
+
         self.sync()
         return self
 
@@ -440,6 +444,10 @@ class SimContext:
 
         for name in self._entities:
             self._executors[name] = self._controller.get_entity_executor(name)
+
+        # Settle physics so sensors (F/T, contacts) are immediately valid
+        for _ in range(500):
+            mujoco.mj_step(self._model, self._data)
 
     def _setup_kinematic(self, viewer_sync_interval: float) -> None:
         """Create per-arm and per-entity KinematicExecutors."""
