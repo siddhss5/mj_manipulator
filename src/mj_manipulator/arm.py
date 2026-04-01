@@ -424,10 +424,19 @@ class Arm:
             tcp_offset=self.config.tcp_offset,
         )
 
-        # Collision checker with snapshot of current grasp state
+        # Collision checker with snapshot of current grasp state.
+        # Only include objects grasped by THIS arm — objects held by other
+        # arms are static obstacles, not part of this arm's robot model.
         if self.grasp_manager is not None:
-            grasped_objects = frozenset(self.grasp_manager.grasped.items())
-            attachments = dict(self.grasp_manager._attachments)
+            arm_name = self.config.name
+            grasped_objects = frozenset(
+                (obj, arm) for obj, arm in self.grasp_manager.grasped.items()
+                if arm == arm_name
+            )
+            attachments = {
+                obj: att for obj, att in self.grasp_manager._attachments.items()
+                if obj in dict(grasped_objects)
+            }
             collision_checker = CollisionChecker(
                 model=model,
                 data=data,
