@@ -56,13 +56,21 @@ class PlanToTSRs(_ManipulationNode):
         self.bb.register_key(key=self._key("path"), access=Access.WRITE)
         self.bb.register_key(key=self._key("goal_tsr_index"), access=Access.WRITE)
         self.bb.register_key(key=self._key("plan_failure_reason"), access=Access.WRITE)
+        try:
+            self.bb.register_key(key="/abort_fn", access=Access.READ)
+        except KeyError:
+            pass
 
     def update(self) -> Status:
         arm = self.bb.get(self._key("arm"))
         tsrs = self.bb.get(self._key(self._tsrs_key))
         timeout = self.bb.get(self._key("timeout"))
         try:
-            result = arm.plan_to_tsrs(tsrs, timeout=timeout, return_details=True)
+            abort_fn = self.bb.get("/abort_fn")
+        except KeyError:
+            abort_fn = None
+        try:
+            result = arm.plan_to_tsrs(tsrs, timeout=timeout, return_details=True, abort_fn=abort_fn)
         except Exception as e:
             reason = str(e)
             self.feedback_message = reason
@@ -92,13 +100,21 @@ class PlanToConfig(_ManipulationNode):
         self.bb.register_key(key=self._key("goal_config"), access=Access.READ)
         self.bb.register_key(key=self._key("timeout"), access=Access.READ)
         self.bb.register_key(key=self._key("path"), access=Access.WRITE)
+        try:
+            self.bb.register_key(key="/abort_fn", access=Access.READ)
+        except KeyError:
+            pass
 
     def update(self) -> Status:
         arm = self.bb.get(self._key("arm"))
         goal = self.bb.get(self._key("goal_config"))
         timeout = self.bb.get(self._key("timeout"))
         try:
-            path = arm.plan_to_configuration(goal, timeout=timeout)
+            abort_fn = self.bb.get("/abort_fn")
+        except KeyError:
+            abort_fn = None
+        try:
+            path = arm.plan_to_configuration(goal, timeout=timeout, abort_fn=abort_fn)
         except Exception as e:
             self.feedback_message = str(e)
             return Status.FAILURE
@@ -224,6 +240,10 @@ class CartesianMove(_ManipulationNode):
         self.bb.register_key(key=self._key("twist"), access=Access.READ)
         self.bb.register_key(key=self._key("distance"), access=Access.READ)
         self.bb.register_key(key="/context", access=Access.READ)
+        try:
+            self.bb.register_key(key="/abort_fn", access=Access.READ)
+        except KeyError:
+            pass
 
     def update(self) -> Status:
         from mj_manipulator.cartesian import CartesianController
@@ -234,11 +254,16 @@ class CartesianMove(_ManipulationNode):
         distance = self.bb.get(self._key("distance"))
         ctx = self.bb.get("/context")
 
+        try:
+            abort_fn = self.bb.get("/abort_fn")
+        except KeyError:
+            abort_fn = None
+
         def step_fn(q, qd):
             ctx.step_cartesian(arm_name, q, qd)
 
         ctrl = CartesianController.from_arm(arm, step_fn=step_fn)
-        ctrl.move(twist, dt=0.004, max_distance=distance)
+        ctrl.move(twist, dt=0.004, max_distance=distance, stop_condition=abort_fn)
         return Status.SUCCESS
 
 

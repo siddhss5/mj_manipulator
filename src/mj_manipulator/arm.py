@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import mujoco
@@ -455,19 +456,24 @@ class Arm:
         self,
         timeout: float | None,
         planner_config: CBiRRTConfig | None,
+        abort_fn: Callable[[], bool] | None = None,
     ) -> CBiRRTConfig:
         """Build a planner config from planning_defaults, with optional overrides."""
         defaults = self.config.planning_defaults
         if planner_config is not None:
+            overrides = {}
             if timeout is not None:
-                return dataclasses.replace(planner_config, timeout=timeout)
-            return planner_config
+                overrides["timeout"] = timeout
+            if abort_fn is not None:
+                overrides["abort_fn"] = abort_fn
+            return dataclasses.replace(planner_config, **overrides) if overrides else planner_config
         return CBiRRTConfig(
             timeout=timeout if timeout is not None else defaults.timeout,
             max_iterations=defaults.max_iterations,
             step_size=defaults.step_size,
             goal_bias=defaults.goal_bias,
             smoothing_iterations=defaults.smoothing_iterations,
+            abort_fn=abort_fn,
         )
 
     def _make_pose_tsr(self, pose: np.ndarray) -> TSR:
@@ -483,6 +489,7 @@ class Arm:
         timeout: float | None = None,
         seed: int | None = None,
         planner_config: CBiRRTConfig | None = None,
+        abort_fn: Callable[[], bool] | None = None,
     ) -> list[np.ndarray] | None:
         """Plan a collision-free path from current config to q_goal.
 
@@ -492,11 +499,12 @@ class Arm:
             timeout: Planning timeout in seconds (default from planning_defaults).
             seed: RNG seed for reproducibility.
             planner_config: Override planner configuration.
+            abort_fn: If provided, called each iteration; return True to abort.
 
         Returns:
             List of waypoint configurations, or None if planning failed.
         """
-        config = self._make_planner_config(timeout, planner_config)
+        config = self._make_planner_config(timeout, planner_config, abort_fn=abort_fn)
         planner = self.create_planner(config)
         path = planner.plan(
             start=self.get_joint_positions(),
@@ -518,6 +526,7 @@ class Arm:
         timeout: float | None = None,
         seed: int | None = None,
         planner_config: CBiRRTConfig | None = None,
+        abort_fn: Callable[[], bool] | None = None,
     ) -> list[np.ndarray] | None:
         """Plan to the nearest reachable goal from a set of configurations.
 
@@ -527,11 +536,12 @@ class Arm:
             timeout: Planning timeout in seconds (default from planning_defaults).
             seed: RNG seed for reproducibility.
             planner_config: Override planner configuration.
+            abort_fn: If provided, called each iteration; return True to abort.
 
         Returns:
             Path to nearest reachable goal, or None if all failed.
         """
-        config = self._make_planner_config(timeout, planner_config)
+        config = self._make_planner_config(timeout, planner_config, abort_fn=abort_fn)
         planner = self.create_planner(config)
         return planner.plan(
             start=self.get_joint_positions(),
@@ -549,6 +559,7 @@ class Arm:
         seed: int | None = None,
         planner_config: CBiRRTConfig | None = None,
         return_details: bool = False,
+        abort_fn: Callable[[], bool] | None = None,
     ) -> list[np.ndarray] | None:
         """Plan to a TSR-defined goal region.
 
@@ -563,6 +574,7 @@ class Arm:
             planner_config: Override planner configuration.
             return_details: If True, return pycbirrt PlanResult with indices
                 and stats instead of just the path.
+            abort_fn: If provided, called each iteration; return True to abort.
 
         Returns:
             Path to a goal satisfying the TSRs, or None if failed.
@@ -573,7 +585,7 @@ class Arm:
                 "plan_to_tsrs requires an IK solver. "
                 "Pass ik_solver= to the Arm constructor."
             )
-        config = self._make_planner_config(timeout, planner_config)
+        config = self._make_planner_config(timeout, planner_config, abort_fn=abort_fn)
         planner = self.create_planner(config)
         result = planner.plan(
             start=self.get_joint_positions(),
