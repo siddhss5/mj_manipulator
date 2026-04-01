@@ -92,13 +92,25 @@ class CollisionChecker:
                 raise ValueError(f"Joint '{name}' not found in model")
             self.joint_indices.append(model.jnt_qposadr[joint_id])
 
-        # Build set of body IDs belonging to this arm (including gripper children)
+        # Build set of body IDs belonging to this arm.
+        # Includes: joint bodies, all children (gripper), and parent bodies
+        # up to (not including) world body 0. Parent bodies are the mounting
+        # hardware (e.g. vention base) — arm-to-base contacts are handled
+        # by MuJoCo's <exclude> tags, not flagged as robot-environment.
         self._arm_body_ids: set[int] = set()
         for name in joint_names:
             joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
             body_id = model.jnt_bodyid[joint_id]
             self._arm_body_ids.add(body_id)
             self._add_child_bodies(body_id)
+        # Walk up parent chain from the first joint's body
+        if joint_names:
+            first_joint = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, joint_names[0])
+            body_id = model.jnt_bodyid[first_joint]
+            parent = model.body_parentid[body_id]
+            while parent > 0:  # stop before world body
+                self._arm_body_ids.add(parent)
+                parent = model.body_parentid[parent]
 
     # -- Public API (pycbirrt CollisionChecker protocol) --
 
