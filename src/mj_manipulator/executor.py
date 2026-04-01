@@ -75,6 +75,7 @@ class KinematicExecutor:
                 f"joint count {len(self.joint_qpos_indices)}"
             )
 
+        t_start = time.time()
         for i in range(trajectory.num_waypoints):
             if self._abort_fn is not None and self._abort_fn():
                 logger.info("Trajectory aborted at waypoint %d/%d", i, trajectory.num_waypoints)
@@ -95,7 +96,10 @@ class KinematicExecutor:
                     self.viewer.sync()
                     self._last_viewer_sync = now
 
-            time.sleep(self.control_dt)
+            t_target = t_start + (i + 1) * self.control_dt
+            t_remaining = t_target - time.time()
+            if t_remaining > 0:
+                time.sleep(t_remaining)
 
         # Final state with zero velocity
         for joint_idx, qpos_idx in enumerate(self.joint_qpos_indices):

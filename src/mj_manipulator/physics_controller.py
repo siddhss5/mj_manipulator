@@ -326,8 +326,9 @@ class PhysicsController:
                 f"arm joint count {len(state.joint_qpos_indices)}"
             )
 
-        # Follow trajectory
-        sleep_dt = self.control_dt if self.viewer is not None else 0.0
+        # Follow trajectory at real-time rate
+        realtime = self.viewer is not None
+        t_start = time.time() if realtime else 0.0
         for i in range(trajectory.num_waypoints):
             if self._abort_fn is not None and self._abort_fn():
                 logger.info("Trajectory aborted at waypoint %d/%d", i, trajectory.num_waypoints)
@@ -337,8 +338,11 @@ class PhysicsController:
             state.target_position = trajectory.positions[i]
             state.target_velocity = trajectory.velocities[i]
             self.step()
-            if sleep_dt > 0:
-                time.sleep(sleep_dt)
+            if realtime:
+                t_target = t_start + (i + 1) * self.control_dt
+                t_remaining = t_target - time.time()
+                if t_remaining > 0:
+                    time.sleep(t_remaining)
 
         # Hold final position (zero velocity)
         state.target_position = trajectory.positions[-1].copy()
@@ -551,7 +555,8 @@ class PhysicsController:
                 f"entity joint count {len(state.joint_qpos_indices)}"
             )
 
-        sleep_dt = self.control_dt if self.viewer is not None else 0.0
+        realtime = self.viewer is not None
+        t_start = time.time() if realtime else 0.0
         for i in range(trajectory.num_waypoints):
             if self._abort_fn is not None and self._abort_fn():
                 logger.info("Entity trajectory aborted at waypoint %d/%d", i, trajectory.num_waypoints)
@@ -559,8 +564,11 @@ class PhysicsController:
             state.target_position = trajectory.positions[i]
             state.target_velocity = trajectory.velocities[i]
             self.step()
-            if sleep_dt > 0:
-                time.sleep(sleep_dt)
+            if realtime:
+                t_target = t_start + (i + 1) * self.control_dt
+                t_remaining = t_target - time.time()
+                if t_remaining > 0:
+                    time.sleep(t_remaining)
 
         state.target_position = trajectory.positions[-1].copy()
         state.target_velocity = np.zeros(len(state.actuator_ids))
