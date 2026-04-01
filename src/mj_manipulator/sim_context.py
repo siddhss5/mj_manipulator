@@ -206,6 +206,7 @@ class SimContext:
         initial_positions: dict[str, np.ndarray] | None = None,
         viewer_fps: float = 30.0,
         entities: dict[str, object] | None = None,
+        abort_fn: object | None = None,
     ):
         self._model = model
         self._data = data
@@ -216,6 +217,7 @@ class SimContext:
         self._viewer = viewer
         self._physics_config = physics_config
         self._initial_positions = initial_positions
+        self._abort_fn = abort_fn
         self._viewer_fps = viewer_fps
 
         self._controller: PhysicsController | None = None
@@ -289,6 +291,8 @@ class SimContext:
 
         if isinstance(item, PlanResult):
             for traj in item.trajectories:
+                if self._abort_fn is not None and self._abort_fn():
+                    return False
                 if not self._execute_trajectory(traj):
                     return False
             return True
@@ -437,6 +441,7 @@ class SimContext:
             viewer_sync_interval=viewer_sync_interval,
             initial_positions=self._initial_positions,
             entities=self._entities,
+            abort_fn=self._abort_fn,
         )
 
         for name in self._arms:
@@ -460,6 +465,7 @@ class SimContext:
                 viewer=self._viewer,
                 grasp_manager=arm.grasp_manager,
                 viewer_sync_interval=viewer_sync_interval,
+                abort_fn=self._abort_fn,
             )
 
         for name, entity in self._entities.items():
@@ -470,6 +476,7 @@ class SimContext:
                 viewer=self._viewer,
                 grasp_manager=gm,
                 viewer_sync_interval=viewer_sync_interval,
+                abort_fn=self._abort_fn,
             )
 
     def _execute_trajectory(self, trajectory) -> bool:

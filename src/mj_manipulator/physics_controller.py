@@ -119,10 +119,12 @@ class PhysicsController:
         viewer_sync_interval: float = 0.033,
         initial_positions: dict[str, np.ndarray] | None = None,
         entities: dict[str, object] | None = None,
+        abort_fn=None,
     ):
         self.model = model
         self.data = data
         self.viewer = viewer
+        self._abort_fn = abort_fn
 
         self.config = config or PhysicsExecutionConfig()
         self.gripper_config = gripper_config or GripperPhysicsConfig()
@@ -327,6 +329,11 @@ class PhysicsController:
         # Follow trajectory
         sleep_dt = self.control_dt if self.viewer is not None else 0.0
         for i in range(trajectory.num_waypoints):
+            if self._abort_fn is not None and self._abort_fn():
+                logger.info("Trajectory aborted at waypoint %d/%d", i, trajectory.num_waypoints)
+                # Zero velocity so arm holds position while other arms move
+                state.target_velocity = np.zeros(len(state.actuator_ids))
+                return False
             state.target_position = trajectory.positions[i]
             state.target_velocity = trajectory.velocities[i]
             self.step()
@@ -546,6 +553,9 @@ class PhysicsController:
 
         sleep_dt = self.control_dt if self.viewer is not None else 0.0
         for i in range(trajectory.num_waypoints):
+            if self._abort_fn is not None and self._abort_fn():
+                logger.info("Entity trajectory aborted at waypoint %d/%d", i, trajectory.num_waypoints)
+                return False
             state.target_position = trajectory.positions[i]
             state.target_velocity = trajectory.velocities[i]
             self.step()

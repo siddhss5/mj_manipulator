@@ -50,6 +50,7 @@ class KinematicExecutor:
         viewer=None,
         grasp_manager: GraspManager | None = None,
         viewer_sync_interval: float = 0.033,
+        abort_fn=None,
     ):
         self.model = model
         self.data = data
@@ -57,6 +58,7 @@ class KinematicExecutor:
         self.control_dt = control_dt
         self.viewer = viewer
         self.grasp_manager = grasp_manager
+        self._abort_fn = abort_fn
 
         self._last_viewer_sync = 0.0
         self._viewer_sync_interval = viewer_sync_interval
@@ -74,6 +76,9 @@ class KinematicExecutor:
             )
 
         for i in range(trajectory.num_waypoints):
+            if self._abort_fn is not None and self._abort_fn():
+                logger.info("Trajectory aborted at waypoint %d/%d", i, trajectory.num_waypoints)
+                return False
             for joint_idx, qpos_idx in enumerate(self.joint_qpos_indices):
                 self.data.qpos[qpos_idx] = trajectory.positions[i, joint_idx]
                 self.data.qvel[qpos_idx] = trajectory.velocities[i, joint_idx]
@@ -221,7 +226,7 @@ class PhysicsExecutor:
         ])
         self._target_velocity = np.zeros(len(self.joint_qpos_indices))
 
-    def execute(self, trajectory: Trajectory) -> bool:
+    def execute(self, trajectory: Trajectory, abort_fn=None) -> bool:
         """Execute trajectory with velocity feedforward."""
         if trajectory.dof != len(self.joint_qpos_indices):
             raise ValueError(
@@ -230,6 +235,9 @@ class PhysicsExecutor:
             )
 
         for i in range(trajectory.num_waypoints):
+            if abort_fn is not None and abort_fn():
+                logger.info("Trajectory aborted at waypoint %d/%d", i, trajectory.num_waypoints)
+                return False
             self._target_position = trajectory.positions[i]
             self._target_velocity = trajectory.velocities[i]
             self.step()
