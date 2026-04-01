@@ -119,7 +119,10 @@ class PlanToConfig(_ManipulationNode):
             self.feedback_message = str(e)
             return Status.FAILURE
         if path is None:
-            self.feedback_message = "Planning to configuration failed"
+            if abort_fn is not None and abort_fn():
+                self.feedback_message = "Aborted"
+            else:
+                self.feedback_message = "Planning to configuration failed"
             return Status.FAILURE
         self.bb.set(self._key("path"), path)
         return Status.SUCCESS
