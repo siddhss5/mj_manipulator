@@ -119,6 +119,51 @@ class CollisionChecker:
 
         return self._count_invalid_contacts(data) == 0
 
+    def get_contacts(self, q: np.ndarray) -> list[tuple[str, str, float]]:
+        """Return all invalid contacts for a configuration.
+
+        Args:
+            q: Joint configuration (only the controlled joints).
+
+        Returns:
+            List of (arm_body_name, other_body_name, penetration_mm) tuples
+            for each invalid contact. Empty if collision-free.
+        """
+        data = self._prepare_data(q)
+        self._update_attached_poses(data)
+        mujoco.mj_forward(self.model, data)
+
+        contacts = []
+        for body1, body2, contact in iter_contacts(self.model, data):
+            body1_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, body1) or str(body1)
+            body2_name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, body2) or str(body2)
+
+            body1_is_arm = body1 in self._arm_body_ids
+            body2_is_arm = body2 in self._arm_body_ids
+            body1_is_grasped = body1_name is not None and self._is_grasped(body1_name)
+            body2_is_grasped = body2_name is not None and self._is_grasped(body2_name)
+
+            body1_is_robot = body1_is_arm or body1_is_grasped
+            body2_is_robot = body2_is_arm or body2_is_grasped
+
+            if not body1_is_robot and not body2_is_robot:
+                continue
+
+            if body1_is_robot and body2_is_robot:
+                if self._is_gripper_object_contact(
+                    body1, body1_name, body1_is_arm, body1_is_grasped,
+                    body2, body2_name, body2_is_arm, body2_is_grasped,
+                ):
+                    continue
+                contacts.append((body1_name, body2_name, -contact.dist * 1000))
+                continue
+
+            arm_name = body1_name if body1_is_robot else body2_name
+            env_name = body2_name if body1_is_robot else body1_name
+            contacts.append((arm_name, env_name, -contact.dist * 1000))
+
+        return contacts
+
     def is_valid_batch(self, qs: np.ndarray) -> np.ndarray:
         """Check multiple configurations for collisions."""
         results = np.zeros(len(qs), dtype=bool)

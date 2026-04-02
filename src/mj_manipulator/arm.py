@@ -383,6 +383,36 @@ class Arm:
     # Planning
     # -----------------------------------------------------------------
 
+    def check_collisions(self) -> list[tuple[str, str, float]]:
+        """Check current configuration for collisions.
+
+        Uses the same collision checker as the planner, including
+        grasp-aware filtering (gripper-to-held-object contacts are OK).
+
+        Returns:
+            List of (arm_body, other_body, penetration_mm) tuples.
+            Empty list if collision-free. Prints a summary.
+
+        Example::
+
+            robot.right.check_collisions()
+            # Right arm: 2 contacts
+            #   forearm_link <-> sugar_box_0: 2.3mm
+            #   gripper/pad <-> table: 0.8mm
+        """
+        planner = self.create_planner()
+        contacts = planner.collision.get_contacts(self.get_joint_positions())
+        if contacts:
+            print(f"{self.config.name} arm: {len(contacts)} contact(s)")
+            for arm_body, other, depth in contacts:
+                # Shorten body names for readability
+                arm_short = arm_body.split("/", 1)[-1] if "/" in arm_body else arm_body
+                other_short = other.split("/", 1)[-1] if "/" in other else other
+                print(f"  {arm_short} <-> {other_short}: {depth:.1f}mm")
+        else:
+            print(f"{self.config.name} arm: collision-free")
+        return contacts
+
     def create_planner(
         self,
         config: CBiRRTConfig | None = None,
