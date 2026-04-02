@@ -337,25 +337,11 @@ class TestRecording:
 
 class TestSafetyModes:
 
-    def test_unchecked_ignores_collision(self):
+    def test_allow_moves_but_flags_collision(self):
         q = np.array([0.01] * 6)
         arm = MockArm(ik_solutions=[q], collision_valid=False)
         ctx = MockContext()
-        config = TeleopConfig(safety_mode=SafetyMode.UNCHECKED)
-        ctrl = TeleopController(arm, ctx, config)
-        ctrl.activate()
-
-        ctrl.set_target_pose(np.eye(4))
-        state = ctrl.step()
-
-        assert state == TeleopState.TRACKING
-        assert ctx.step_count == 1
-
-    def test_warn_moves_but_flags_collision(self):
-        q = np.array([0.01] * 6)
-        arm = MockArm(ik_solutions=[q], collision_valid=False)
-        ctx = MockContext()
-        config = TeleopConfig(safety_mode=SafetyMode.WARN)
+        config = TeleopConfig(safety_mode=SafetyMode.ALLOW)
         ctrl = TeleopController(arm, ctx, config)
         ctrl.activate()
 
@@ -379,11 +365,11 @@ class TestSafetyModes:
         assert state == TeleopState.UNREACHABLE
         assert ctx.step_count == 0  # did NOT move
 
-    def test_warn_returns_tracking_when_clear(self):
+    def test_allow_returns_tracking_when_clear(self):
         q = np.array([0.01] * 6)
         arm = MockArm(ik_solutions=[q], collision_valid=True)
         ctx = MockContext()
-        config = TeleopConfig(safety_mode=SafetyMode.WARN)
+        config = TeleopConfig(safety_mode=SafetyMode.ALLOW)
         ctrl = TeleopController(arm, ctx, config)
         ctrl.activate()
 
@@ -404,16 +390,16 @@ class TestSafetyModes:
         assert ctrl.step() == TeleopState.UNREACHABLE
         assert ctx.step_count == 0
 
-        ctrl.safety_mode = SafetyMode.UNCHECKED
+        ctrl.safety_mode = SafetyMode.ALLOW
         ctrl.set_target_pose(np.eye(4))
-        assert ctrl.step() == TeleopState.TRACKING
+        assert ctrl.step() == TeleopState.TRACKING_COLLISION  # moves but flags
         assert ctx.step_count == 1
 
     def test_collision_tracking_is_recorded(self):
         q = np.array([0.01] * 6)
         arm = MockArm(ik_solutions=[q], collision_valid=False)
         ctx = MockContext()
-        config = TeleopConfig(safety_mode=SafetyMode.WARN)
+        config = TeleopConfig(safety_mode=SafetyMode.ALLOW)
         ctrl = TeleopController(arm, ctx, config)
         ctrl.activate()
 

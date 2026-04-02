@@ -55,13 +55,12 @@ class TeleopState(Enum):
 class SafetyMode(Enum):
     """Collision safety mode for teleop.
 
-    UNCHECKED: No collision checking. For rescue and contact-rich demos.
-    WARN:      Move but flag collisions (ghost turns orange). Default for sim.
-    REJECT:    Don't move to colliding configs. Default for real robot.
+    ALLOW:  Move and flag collisions in status. For rescue, contact-rich
+            demos, and general teleop. Default.
+    REJECT: Don't move to colliding configs. For real robot safety.
     """
 
-    UNCHECKED = "unchecked"
-    WARN = "warn"
+    ALLOW = "allow"
     REJECT = "reject"
 
 
@@ -75,8 +74,8 @@ class TeleopConfig:
     idle_timeout: float = 0.5
     """Seconds without input before transitioning to IDLE."""
 
-    safety_mode: SafetyMode = SafetyMode.WARN
-    """Collision safety mode. WARN for sim, REJECT for real robot."""
+    safety_mode: SafetyMode = SafetyMode.ALLOW
+    """Collision safety mode. ALLOW for sim, REJECT for real robot."""
 
 
 @dataclass
@@ -351,17 +350,15 @@ class TeleopController:
         """Check collision safety and commit joint targets.
 
         Shared by both pose and twist paths. Applies the safety mode:
-        - UNCHECKED: always commit, return TRACKING
-        - WARN: commit and return TRACKING_COLLISION if in collision
+        - ALLOW: commit and return TRACKING_COLLISION if in collision
         - REJECT: don't commit if in collision, return UNREACHABLE
         """
         mode = self._config.safety_mode
         in_collision = False
 
-        if mode != SafetyMode.UNCHECKED:
-            cc = self._get_collision_checker()
-            if cc is not None:
-                in_collision = not cc.is_valid(q_target)
+        cc = self._get_collision_checker()
+        if cc is not None:
+            in_collision = not cc.is_valid(q_target)
 
         if in_collision and mode == SafetyMode.REJECT:
             return TeleopState.UNREACHABLE
