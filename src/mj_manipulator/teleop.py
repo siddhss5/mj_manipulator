@@ -133,6 +133,9 @@ class TeleopController:
         # Safety: collision checker (created lazily)
         self._collision_checker = None
 
+        # Gripper toggle request (set from callback, executed in step)
+        self._gripper_toggle_requested = False
+
         # Recording
         self._recording = False
         self._frames: list[TeleopFrame] = []
@@ -206,9 +209,15 @@ class TeleopController:
             twist = self._target_twist
             mode = self._input_mode
             last_input = self._last_input_time
+            gripper_toggle = self._gripper_toggle_requested
             # Only clear twist (continuous input — stale twist = no motion).
             # Keep pose (gizmo position persists between drags).
             self._target_twist = None
+            self._gripper_toggle_requested = False
+
+        # Execute gripper toggle if requested (must happen in this thread)
+        if gripper_toggle:
+            self._execute_gripper_toggle()
 
         # Idle timeout — only for twist input (pose targets persist)
         if mode == "twist" and (time.monotonic() - last_input > self._config.idle_timeout):
@@ -268,16 +277,20 @@ class TeleopController:
     # -- Gripper control ------------------------------------------------------
 
     def toggle_gripper(self) -> None:
-        """Toggle gripper open/close via the execution context.
+        """Request gripper toggle. Thread-safe — executed in step().
 
-        Uses ctx.arm(name).grasp()/release() which works correctly in
-        both kinematic and physics mode.
+        The actual grasp/release happens in the teleop loop thread
+        which owns the MuJoCo data, avoiding data races.
         """
+        with self._lock:
+            self._gripper_toggle_requested = True
+
+    def _execute_gripper_toggle(self) -> None:
+        """Execute gripper toggle. Called from step() in the teleop thread."""
         arm_name = self._arm.config.name
         gripper = self._arm.gripper
         if gripper is None:
             return
-        # Check if anything is grasped by this arm
         gm = self._arm.grasp_manager
         if gm is not None and gm.get_grasped_by(arm_name):
             self._ctx.arm(arm_name).release()
