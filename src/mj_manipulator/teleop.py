@@ -48,7 +48,21 @@ class TeleopState(Enum):
 
     IDLE = "idle"
     TRACKING = "tracking"
+    TRACKING_COLLISION = "tracking_collision"
     UNREACHABLE = "unreachable"
+
+
+class SafetyMode(Enum):
+    """Collision safety mode for teleop.
+
+    UNCHECKED: No collision checking. For rescue and contact-rich demos.
+    WARN:      Move but flag collisions (ghost turns orange). Default for sim.
+    REJECT:    Don't move to colliding configs. Default for real robot.
+    """
+
+    UNCHECKED = "unchecked"
+    WARN = "warn"
+    REJECT = "reject"
 
 
 @dataclass
@@ -64,6 +78,9 @@ class TeleopConfig:
 
     idle_timeout: float = 0.5
     """Seconds without input before transitioning to IDLE."""
+
+    safety_mode: SafetyMode = SafetyMode.WARN
+    """Collision safety mode. WARN for sim, REJECT for real robot."""
 
 
 @dataclass
@@ -117,6 +134,9 @@ class TeleopController:
         # Twist path: CartesianController (created lazily on first twist input)
         self._cart_ctrl = None
 
+        # Safety: collision checker (created lazily)
+        self._collision_checker = None
+
         # Recording
         self._recording = False
         self._frames: list[TeleopFrame] = []
@@ -130,6 +150,17 @@ class TeleopController:
     def is_active(self) -> bool:
         """Whether teleop is currently activated."""
         return self._active
+
+    @property
+    def safety_mode(self) -> SafetyMode:
+        """Current collision safety mode."""
+        return self._config.safety_mode
+
+    @safety_mode.setter
+    def safety_mode(self, mode: SafetyMode) -> None:
+        """Change collision safety mode (can be toggled at runtime)."""
+        self._config.safety_mode = mode
+        logger.info("Teleop safety mode: %s", mode.value)
 
     # -- Input methods (thread-safe) ------------------------------------------
 
@@ -194,8 +225,10 @@ class TeleopController:
         else:
             self._state = TeleopState.IDLE
 
-        # Record frame if recording
-        if self._recording and self._state == TeleopState.TRACKING:
+        # Record frame if recording (both clean tracking and collision tracking)
+        if self._recording and self._state in (
+            TeleopState.TRACKING, TeleopState.TRACKING_COLLISION,
+        ):
             self._record_frame()
 
         return self._state
@@ -258,6 +291,49 @@ class TeleopController:
         """Whether recording is active."""
         return self._recording
 
+    # -- Internal: safety check -----------------------------------------------
+
+    def _check_and_commit(self, q_target: np.ndarray) -> TeleopState:
+        """Check collision safety and commit joint targets.
+
+        Shared by both pose and twist paths. Applies the safety mode:
+        - UNCHECKED: always commit, return TRACKING
+        - WARN: commit and return TRACKING_COLLISION if in collision
+        - REJECT: don't commit if in collision, return UNREACHABLE
+        """
+        mode = self._config.safety_mode
+        in_collision = False
+
+        if mode != SafetyMode.UNCHECKED:
+            cc = self._get_collision_checker()
+            if cc is not None:
+                in_collision = not cc.is_valid(q_target)
+
+        if in_collision and mode == SafetyMode.REJECT:
+            return TeleopState.UNREACHABLE
+
+        # Compute velocity feedforward
+        q_current = self._arm.get_joint_positions()
+        dt = self._config.twist_dt
+        qd = (q_target - q_current) / max(dt, 1e-6)
+
+        arm_name = self._arm.config.name
+        self._ctx.step_cartesian(arm_name, q_target, qd)
+
+        if in_collision:
+            return TeleopState.TRACKING_COLLISION
+        return TeleopState.TRACKING
+
+    def _get_collision_checker(self):
+        """Lazily create a collision checker from the arm's planner."""
+        if self._collision_checker is None:
+            try:
+                planner = self._arm.create_planner()
+                self._collision_checker = planner.collision
+            except Exception:
+                return None
+        return self._collision_checker
+
     # -- Internal: pose path --------------------------------------------------
 
     def _step_pose(self, pose: np.ndarray) -> TeleopState:
@@ -275,13 +351,7 @@ class TeleopController:
         if q_best is None:
             return TeleopState.UNREACHABLE
 
-        # Compute velocity feedforward for smooth tracking
-        dt = self._config.twist_dt
-        qd = (q_best - q_current) / max(dt, 1e-6)
-
-        arm_name = self._arm.config.name
-        self._ctx.step_cartesian(arm_name, q_best, qd)
-        return TeleopState.TRACKING
+        return self._check_and_commit(q_best)
 
     def _pick_closest(
         self, solutions: list[np.ndarray], q_current: np.ndarray,
@@ -317,15 +387,12 @@ class TeleopController:
         ctrl = self._get_cart_ctrl()
         result = ctrl.step(twist, dt=self._config.twist_dt)
 
-        # Read the new joint positions from the arm (CartesianController
-        # already wrote to data.qpos)
-        q_new = self._arm.get_joint_positions()
-        arm_name = self._arm.config.name
-        self._ctx.step_cartesian(arm_name, q_new)
-
         if result.achieved_fraction < 0.1:
             return TeleopState.UNREACHABLE
-        return TeleopState.TRACKING
+
+        # CartesianController wrote to data.qpos — read the new positions
+        q_new = self._arm.get_joint_positions()
+        return self._check_and_commit(q_new)
 
     def _get_cart_ctrl(self):
         """Lazily create CartesianController for twist input."""

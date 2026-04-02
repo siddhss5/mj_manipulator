@@ -4,7 +4,9 @@ import numpy as np
 import pytest
 import time
 
-from mj_manipulator.teleop import TeleopConfig, TeleopController, TeleopFrame, TeleopState
+from mj_manipulator.teleop import (
+    SafetyMode, TeleopConfig, TeleopController, TeleopFrame, TeleopState,
+)
 
 
 # -- Mock objects for testing without MuJoCo ---------------------------------
@@ -22,6 +24,21 @@ class MockIKSolver:
         return [np.array(s) for s in self.solutions]
 
 
+class MockCollisionChecker:
+    """Configurable collision checker for testing."""
+
+    def __init__(self, valid=True):
+        self._valid = valid
+
+    def is_valid(self, q):
+        return self._valid
+
+
+class MockPlanner:
+    def __init__(self, collision_valid=True):
+        self.collision = MockCollisionChecker(collision_valid)
+
+
 class MockGripper:
     def get_actual_position(self):
         return 0.5
@@ -30,15 +47,19 @@ class MockGripper:
 class MockArm:
     """Minimal Arm-like object for testing."""
 
-    def __init__(self, dof=6, ik_solutions=None):
+    def __init__(self, dof=6, ik_solutions=None, collision_valid=True):
         self._q = np.zeros(dof)
         self._ee_pose = np.eye(4)
         self.ik_solver = MockIKSolver(ik_solutions)
         self.gripper = MockGripper()
+        self._collision_valid = collision_valid
 
         class _Config:
             name = "test_arm"
         self.config = _Config()
+
+    def create_planner(self, config=None):
+        return MockPlanner(self._collision_valid)
 
     def get_joint_positions(self):
         return self._q.copy()
@@ -296,3 +317,93 @@ class TestRecording:
         frames = ctrl.stop_recording()
         for i in range(1, len(frames)):
             assert frames[i].timestamp >= frames[i - 1].timestamp
+
+
+class TestSafetyModes:
+
+    def test_unchecked_ignores_collision(self):
+        q = np.array([0.01] * 6)
+        arm = MockArm(ik_solutions=[q], collision_valid=False)
+        ctx = MockContext()
+        config = TeleopConfig(safety_mode=SafetyMode.UNCHECKED)
+        ctrl = TeleopController(arm, ctx, config)
+        ctrl.activate()
+
+        ctrl.set_target_pose(np.eye(4))
+        state = ctrl.step()
+
+        assert state == TeleopState.TRACKING
+        assert ctx.step_count == 1
+
+    def test_warn_moves_but_flags_collision(self):
+        q = np.array([0.01] * 6)
+        arm = MockArm(ik_solutions=[q], collision_valid=False)
+        ctx = MockContext()
+        config = TeleopConfig(safety_mode=SafetyMode.WARN)
+        ctrl = TeleopController(arm, ctx, config)
+        ctrl.activate()
+
+        ctrl.set_target_pose(np.eye(4))
+        state = ctrl.step()
+
+        assert state == TeleopState.TRACKING_COLLISION
+        assert ctx.step_count == 1  # still moved
+
+    def test_reject_blocks_collision(self):
+        q = np.array([0.01] * 6)
+        arm = MockArm(ik_solutions=[q], collision_valid=False)
+        ctx = MockContext()
+        config = TeleopConfig(safety_mode=SafetyMode.REJECT)
+        ctrl = TeleopController(arm, ctx, config)
+        ctrl.activate()
+
+        ctrl.set_target_pose(np.eye(4))
+        state = ctrl.step()
+
+        assert state == TeleopState.UNREACHABLE
+        assert ctx.step_count == 0  # did NOT move
+
+    def test_warn_returns_tracking_when_clear(self):
+        q = np.array([0.01] * 6)
+        arm = MockArm(ik_solutions=[q], collision_valid=True)
+        ctx = MockContext()
+        config = TeleopConfig(safety_mode=SafetyMode.WARN)
+        ctrl = TeleopController(arm, ctx, config)
+        ctrl.activate()
+
+        ctrl.set_target_pose(np.eye(4))
+        state = ctrl.step()
+
+        assert state == TeleopState.TRACKING
+
+    def test_safety_mode_changeable_at_runtime(self):
+        q = np.array([0.01] * 6)
+        arm = MockArm(ik_solutions=[q], collision_valid=False)
+        ctx = MockContext()
+        config = TeleopConfig(safety_mode=SafetyMode.REJECT)
+        ctrl = TeleopController(arm, ctx, config)
+        ctrl.activate()
+
+        ctrl.set_target_pose(np.eye(4))
+        assert ctrl.step() == TeleopState.UNREACHABLE
+        assert ctx.step_count == 0
+
+        ctrl.safety_mode = SafetyMode.UNCHECKED
+        ctrl.set_target_pose(np.eye(4))
+        assert ctrl.step() == TeleopState.TRACKING
+        assert ctx.step_count == 1
+
+    def test_collision_tracking_is_recorded(self):
+        q = np.array([0.01] * 6)
+        arm = MockArm(ik_solutions=[q], collision_valid=False)
+        ctx = MockContext()
+        config = TeleopConfig(safety_mode=SafetyMode.WARN)
+        ctrl = TeleopController(arm, ctx, config)
+        ctrl.activate()
+
+        ctrl.start_recording()
+        ctrl.set_target_pose(np.eye(4))
+        ctrl.step()
+        frames = ctrl.stop_recording()
+
+        assert len(frames) == 1  # TRACKING_COLLISION frames are recorded
