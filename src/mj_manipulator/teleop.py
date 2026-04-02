@@ -265,6 +265,26 @@ class TeleopController:
             self.stop_recording()
         logger.info("Teleop deactivated for %s arm", self._arm.config.name)
 
+    # -- Gripper control ------------------------------------------------------
+
+    def toggle_gripper(self) -> None:
+        """Toggle gripper open/close via the execution context.
+
+        Uses ctx.arm(name).grasp()/release() which works correctly in
+        both kinematic and physics mode.
+        """
+        arm_name = self._arm.config.name
+        gripper = self._arm.gripper
+        if gripper is None:
+            return
+        # Check if anything is grasped by this arm
+        gm = self._arm.grasp_manager
+        if gm is not None and gm.get_grasped_by(arm_name):
+            self._ctx.arm(arm_name).release()
+        else:
+            self._ctx.arm(arm_name).grasp()
+        self._ctx.sync()
+
     # -- Recording ------------------------------------------------------------
 
     def start_recording(self) -> None:
