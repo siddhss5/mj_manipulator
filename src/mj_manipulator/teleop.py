@@ -352,13 +352,23 @@ class TeleopController:
         Shared by both pose and twist paths. Applies the safety mode:
         - ALLOW: commit and return TRACKING_COLLISION if in collision
         - REJECT: don't commit if in collision, return UNREACHABLE
+
+        Checks both per-arm collisions (forked env) and arm-arm
+        collisions (live data via is_arm_in_collision).
         """
         mode = self._config.safety_mode
         in_collision = False
 
+        # Check per-arm collisions (arm vs environment/objects)
         cc = self._get_collision_checker()
         if cc is not None:
             in_collision = not cc.is_valid(q_target)
+
+        # Check arm-arm collisions on live data.
+        # The forked collision checker doesn't see the other arm's position.
+        # Use the Arm's live collision method which reads from live MjData.
+        if not in_collision:
+            in_collision = self._check_live_collisions(q_target)
 
         if in_collision and mode == SafetyMode.REJECT:
             return TeleopState.UNREACHABLE
@@ -374,6 +384,69 @@ class TeleopController:
         if in_collision:
             return TeleopState.TRACKING_COLLISION
         return TeleopState.TRACKING
+
+    def _check_live_collisions(self, q_target: np.ndarray) -> bool:
+        """Check for arm-arm collisions using live MuJoCo data.
+
+        Temporarily sets the candidate joint positions, runs mj_forward,
+        checks contacts between this arm's bodies and any other arm bodies,
+        then restores the original positions.
+
+        Must be called while holding the sim lock.
+        """
+        if not hasattr(self._arm, 'env'):
+            return False
+        import mujoco
+        model = self._arm.env.model
+        data = self._arm.env.data
+
+        # Save current positions
+        indices = self._arm.joint_qpos_indices
+        q_saved = np.array([data.qpos[i] for i in indices])
+
+        # Set candidate
+        for i, idx in enumerate(indices):
+            data.qpos[idx] = q_target[i]
+        mujoco.mj_forward(model, data)
+
+        # Check contacts: any contact between this arm and non-self bodies
+        arm_body_ids = set()
+        for jname in self._arm.config.joint_names:
+            jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, jname)
+            bid = model.jnt_bodyid[jid]
+            arm_body_ids.add(bid)
+            # Add children (gripper)
+            for child_id in range(model.nbody):
+                parent = child_id
+                while parent > 0:
+                    if parent in arm_body_ids:
+                        arm_body_ids.add(child_id)
+                        break
+                    parent = model.body_parentid[parent]
+
+        in_collision = False
+        for i in range(data.ncon):
+            c = data.contact[i]
+            b1 = model.geom_bodyid[c.geom1]
+            b2 = model.geom_bodyid[c.geom2]
+            # Only flag if one body is ours and the other is NOT ours
+            # and the other is also an arm (not environment)
+            b1_ours = b1 in arm_body_ids
+            b2_ours = b2 in arm_body_ids
+            if b1_ours != b2_ours and c.dist < -0.002:
+                other = b2 if b1_ours else b1
+                other_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, other)
+                # Check if other body belongs to another arm (has "ur5e" in name)
+                if other_name and ("ur5e" in other_name or "gripper" in other_name):
+                    in_collision = True
+                    break
+
+        # Restore
+        for i, idx in enumerate(indices):
+            data.qpos[idx] = q_saved[i]
+        mujoco.mj_forward(model, data)
+
+        return in_collision
 
     def _get_collision_checker(self):
         """Lazily create a collision checker from the arm's planner."""
