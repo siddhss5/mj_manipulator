@@ -68,6 +68,12 @@ class SafetyMode(Enum):
 class TeleopConfig:
     """Configuration for TeleopController."""
 
+    max_joint_step: float = 0.05
+    """Maximum per-joint step (rad) per control cycle. Larger deltas are
+    scaled down uniformly. Prevents IK solution flips (elbow up/down)
+    while always making progress toward the target. At 30Hz this is
+    ~1.5 rad/s (~85°/s) — comfortable teleop speed."""
+
     twist_dt: float = 0.008
     """Timestep for CartesianController twist integration."""
 
@@ -385,8 +391,15 @@ class TeleopController:
         if in_collision and mode == SafetyMode.REJECT:
             return TeleopState.UNREACHABLE
 
-        # Compute velocity feedforward
+        # Clamp per-joint step to prevent IK flips
         q_current = self._arm.get_joint_positions()
+        delta = q_target - q_current
+        max_step = self._config.max_joint_step
+        max_component = float(np.max(np.abs(delta)))
+        if max_component > max_step:
+            q_target = q_current + delta * (max_step / max_component)
+
+        # Compute velocity feedforward
         dt = self._config.twist_dt
         qd = (q_target - q_current) / max(dt, 1e-6)
 
