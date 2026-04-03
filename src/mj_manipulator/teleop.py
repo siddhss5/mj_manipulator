@@ -388,58 +388,62 @@ class TeleopController:
     def _check_live_collisions(self, q_target: np.ndarray) -> bool:
         """Check for arm-arm collisions using live MuJoCo data.
 
-        Temporarily sets the candidate joint positions, runs mj_forward,
-        checks contacts between this arm's bodies and any other arm bodies,
-        then restores the original positions.
+        The per-arm collision checker uses a forked env and can't see the
+        other arm. This method checks the live scene by temporarily setting
+        candidate positions, running mj_forward, and scanning contacts.
 
         Must be called while holding the sim lock.
         """
         if not hasattr(self._arm, 'env'):
             return False
         import mujoco
+        from mj_manipulator.collision import CollisionChecker
+
         model = self._arm.env.model
         data = self._arm.env.data
 
-        # Save current positions
+        # Build body ID set for THIS arm (reuse CollisionChecker's logic)
+        my_body_ids: set[int] = set()
+        for jname in self._arm.config.joint_names:
+            jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, jname)
+            bid = model.jnt_bodyid[jid]
+            my_body_ids.add(bid)
+        # Add all descendant bodies
+        changed = True
+        while changed:
+            changed = False
+            for i in range(model.nbody):
+                if i not in my_body_ids and model.body_parentid[i] in my_body_ids:
+                    my_body_ids.add(i)
+                    changed = True
+
+        # Save and set candidate positions
         indices = self._arm.joint_qpos_indices
         q_saved = np.array([data.qpos[i] for i in indices])
-
-        # Set candidate
         for i, idx in enumerate(indices):
             data.qpos[idx] = q_target[i]
         mujoco.mj_forward(model, data)
 
-        # Check contacts: any contact between this arm and non-self bodies
-        arm_body_ids = set()
-        for jname in self._arm.config.joint_names:
-            jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, jname)
-            bid = model.jnt_bodyid[jid]
-            arm_body_ids.add(bid)
-            # Add children (gripper)
-            for child_id in range(model.nbody):
-                parent = child_id
-                while parent > 0:
-                    if parent in arm_body_ids:
-                        arm_body_ids.add(child_id)
-                        break
-                    parent = model.body_parentid[parent]
-
+        # Scan contacts for arm-arm collisions
         in_collision = False
         for i in range(data.ncon):
             c = data.contact[i]
+            if c.dist >= 0:
+                continue  # no penetration
             b1 = model.geom_bodyid[c.geom1]
             b2 = model.geom_bodyid[c.geom2]
-            # Only flag if one body is ours and the other is NOT ours
-            # and the other is also an arm (not environment)
-            b1_ours = b1 in arm_body_ids
-            b2_ours = b2 in arm_body_ids
-            if b1_ours != b2_ours and c.dist < -0.002:
-                other = b2 if b1_ours else b1
-                other_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, other)
-                # Check if other body belongs to another arm (has "ur5e" in name)
-                if other_name and ("ur5e" in other_name or "gripper" in other_name):
-                    in_collision = True
-                    break
+            b1_mine = b1 in my_body_ids
+            b2_mine = b2 in my_body_ids
+            if not (b1_mine or b2_mine):
+                continue  # neither body is ours
+            if b1_mine and b2_mine:
+                continue  # self-collision (handled by exclude tags)
+            # One is ours, one isn't — check if the other is another arm
+            other = b2 if b1_mine else b1
+            other_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, other) or ""
+            if "ur5e" in other_name or "gripper" in other_name:
+                in_collision = True
+                break
 
         # Restore
         for i, idx in enumerate(indices):
