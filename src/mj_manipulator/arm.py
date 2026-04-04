@@ -249,6 +249,24 @@ class Arm:
             self.env.data.qpos[idx] for idx in self.joint_qpos_indices
         ])
 
+    def set_joint_positions(self, q: np.ndarray) -> None:
+        """Set joint positions directly and run forward kinematics.
+
+        Simulation only — teleports the arm to the target configuration.
+        On real hardware, use plan_to_configuration() instead.
+
+        Args:
+            q: Joint positions (rad), length must match DOF.
+        """
+        q = np.asarray(q)
+        if len(q) != self.dof:
+            raise ValueError(f"Expected {self.dof} joints, got {len(q)}")
+        for i, idx in enumerate(self.joint_qpos_indices):
+            self.env.data.qpos[idx] = q[i]
+        for idx in self.joint_qvel_indices:
+            self.env.data.qvel[idx] = 0.0
+        mujoco.mj_forward(self.env.model, self.env.data)
+
     def get_joint_velocities(self) -> np.ndarray:
         """Current joint velocities (rad/s)."""
         return np.array([
