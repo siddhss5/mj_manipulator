@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Generic MuJoCo manipulator control framework.
 
 Provides planning, execution, grasping, and cartesian control for any robot arm.
@@ -12,6 +15,15 @@ or on a real robot:
         ctx.arm("franka").grasp("mug")
 """
 
+from mj_manipulator.arm import Arm, ArmRobotModel, ContextRobotModel
+from mj_manipulator.cartesian import (
+    CartesianControlConfig,
+    CartesianController,
+    MoveUntilTouchResult,
+    TwistExecutionResult,
+    TwistStepResult,
+)
+from mj_manipulator.collision import CollisionChecker
 from mj_manipulator.config import (
     ArmConfig,
     EntityConfig,
@@ -22,7 +34,10 @@ from mj_manipulator.config import (
     PlanningDefaults,
     RecoveryConfig,
 )
-from mj_manipulator.arm import Arm, ArmRobotModel, ContextRobotModel
+from mj_manipulator.executor import KinematicExecutor, PhysicsExecutor
+from mj_manipulator.grasp_manager import GraspManager, detect_grasped_object
+from mj_manipulator.grippers import FrankaGripper, RobotiqGripper
+from mj_manipulator.physics_controller import ArmPhysicsExecutor, PhysicsController
 from mj_manipulator.planning import PlanResult
 from mj_manipulator.protocols import (
     ArmController,
@@ -31,18 +46,6 @@ from mj_manipulator.protocols import (
     Gripper,
     IKSolver,
 )
-from mj_manipulator.cartesian import (
-    CartesianControlConfig,
-    CartesianController,
-    MoveUntilTouchResult,
-    TwistExecutionResult,
-    TwistStepResult,
-)
-from mj_manipulator.collision import CollisionChecker
-from mj_manipulator.executor import KinematicExecutor, PhysicsExecutor
-from mj_manipulator.grasp_manager import GraspManager, detect_grasped_object
-from mj_manipulator.grippers import FrankaGripper, RobotiqGripper
-from mj_manipulator.physics_controller import ArmPhysicsExecutor, PhysicsController
 from mj_manipulator.sim_context import SimArmController, SimContext
 from mj_manipulator.trajectory import Trajectory, create_linear_trajectory
 

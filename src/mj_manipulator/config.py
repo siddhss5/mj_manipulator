@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Generic configuration for MuJoCo manipulators.
 
 Robot-specific configs (UR5e joint names, Robotiq body lists, etc.)
@@ -125,12 +128,6 @@ class RecoveryConfig:
 class PhysicsConfig:
     """Combined physics simulation configuration."""
 
-    execution: PhysicsExecutionConfig = field(
-        default_factory=PhysicsExecutionConfig
-    )
-    gripper: GripperPhysicsConfig = field(
-        default_factory=GripperPhysicsConfig
-    )
-    recovery: RecoveryConfig = field(
-        default_factory=RecoveryConfig
-    )
+    execution: PhysicsExecutionConfig = field(default_factory=PhysicsExecutionConfig)
+    gripper: GripperPhysicsConfig = field(default_factory=GripperPhysicsConfig)
+    recovery: RecoveryConfig = field(default_factory=RecoveryConfig)

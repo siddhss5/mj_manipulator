@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Grasp state management for manipulation.
 
 Tracks which objects are grasped and handles kinematic attachments so grasped
@@ -139,9 +142,7 @@ class GraspManager:
         T[:3, 3] = pos
         return T
 
-    def _set_body_pose_in_data(
-        self, body_name: str, T: np.ndarray, data: mujoco.MjData
-    ) -> None:
+    def _set_body_pose_in_data(self, body_name: str, T: np.ndarray, data: mujoco.MjData) -> None:
         """Set the pose of a freejoint body in specified MjData."""
         body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
         if body_id == -1:
@@ -283,9 +284,7 @@ def detect_grasped_object(
         )
     if require_bilateral and len(non_empty_groups) >= 2:
         bilateral = {
-            bid: info
-            for bid, info in object_contacts.items()
-            if all(info.get(g, False) for g in non_empty_groups)
+            bid: info for bid, info in object_contacts.items() if all(info.get(g, False) for g in non_empty_groups)
         }
         if bilateral:
             object_contacts = bilateral

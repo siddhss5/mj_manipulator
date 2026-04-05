@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Shared test fixtures for mj_manipulator.
 
 Provides a minimal 2-DOF MuJoCo arm model, MockArm, and helpers
@@ -66,9 +69,7 @@ class MockArm:
         self._data = data
 
     def get_joint_positions(self):
-        return np.array([
-            self._data.qpos[idx] for idx in self.joint_qpos_indices
-        ])
+        return np.array([self._data.qpos[idx] for idx in self.joint_qpos_indices])
 
 
 # ---------------------------------------------------------------------------
@@ -93,25 +94,18 @@ def mock_arm(model_and_data):
 @pytest.fixture
 def joint_qpos_indices(model_and_data):
     model, _ = model_and_data
-    return [
-        model.jnt_qposadr[
-            mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
-        ]
-        for name in JOINT_NAMES
-    ]
+    return [model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)] for name in JOINT_NAMES]
 
 
 @pytest.fixture
 def actuator_ids(model_and_data):
     model, _ = model_and_data
-    return [
-        mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, name)
-        for name in ["act1", "act2"]
-    ]
+    return [mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, name) for name in ["act1", "act2"]]
 
 
 def make_trajectory(
-    positions: np.ndarray, entity: str | None = None,
+    positions: np.ndarray,
+    entity: str | None = None,
 ) -> Trajectory:
     """Create a test trajectory from positions array."""
     return Trajectory(

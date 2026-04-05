@@ -1,25 +1,32 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Debug: place Franka at a TSR grasp pose and hold for inspection.
 
 Usage: uv run mjpython demos/_debug_franka_grasp.py
 """
+
 import mujoco
 import numpy as np
 from asset_manager import AssetManager
 from mj_environment import Environment
-from mj_manipulator.arms.franka import add_franka_ee_site, create_franka_arm, FRANKA_HOME
-from mj_manipulator.grippers.franka import FrankaGripper
-from mj_manipulator.grasp_manager import GraspManager
-from mj_manipulator.sim_context import SimContext
 from prl_assets import OBJECTS_DIR
 from tsr.hands import FrankaHand
+
+from mj_manipulator.arms.franka import FRANKA_HOME, add_franka_ee_site, create_franka_arm
+from mj_manipulator.grasp_manager import GraspManager
+from mj_manipulator.grippers.franka import FrankaGripper
+from mj_manipulator.sim_context import SimContext
 
 assets = AssetManager(str(OBJECTS_DIR))
 can_gp = assets.get("can")["geometric_properties"]
 hand = FrankaHand()
 
 # Build scene
-spec = mujoco.MjSpec.from_file(str(__import__("mj_manipulator.menagerie", fromlist=["menagerie_scene"]).menagerie_scene("franka_emika_panda")))
+spec = mujoco.MjSpec.from_file(
+    str(__import__("mj_manipulator.menagerie", fromlist=["menagerie_scene"]).menagerie_scene("franka_emika_panda"))
+)
 add_franka_ee_site(spec)
 
 table = spec.worldbody.add_body()
@@ -55,7 +62,7 @@ T_bottom[2, 3] -= can_gp["height"] / 2
 templates = hand.grasp_cylinder_side(can_gp["radius"], can_gp["height"])
 grasp_tsrs = [t.instantiate(T_bottom) for t in templates]
 
-print(f"Can at: {T_center[:3,3].round(3)}")
+print(f"Can at: {T_center[:3, 3].round(3)}")
 print(f"{len(grasp_tsrs)} grasp TSRs")
 print(f"finger_length: {hand.finger_length}")
 
@@ -67,6 +74,7 @@ if path is None:
 traj = arm.retime(path)
 print(f"Plan found: {traj.num_waypoints} waypoints")
 
+
 def finger_pos():
     positions = []
     for jname in ["finger_joint1", "finger_joint2"]:
@@ -74,6 +82,7 @@ def finger_pos():
         if jid >= 0:
             positions.append(env.data.qpos[env.model.jnt_qposadr[jid]])
     return positions
+
 
 print(f"\nBefore SimContext: fingers={finger_pos()}")
 
@@ -103,9 +112,11 @@ with SimContext(env.model, env.data, {"franka": arm}, physics=False, headless=Fa
     ctx.sync()
 
     ee = arm.get_ee_pose()
-    print(f"\nEE pos: {ee[:3,3].round(4)}")
-    print(f"EE z (approach): {ee[:3,2].round(3)}")
-    print(f"Distance EE to can axis: {np.sqrt((ee[0,3]-T_center[0,3])**2 + (ee[1,3]-T_center[1,3])**2):.4f}")
+    print(f"\nEE pos: {ee[:3, 3].round(4)}")
+    print(f"EE z (approach): {ee[:3, 2].round(3)}")
+    print(
+        f"Distance EE to can axis: {np.sqrt((ee[0, 3] - T_center[0, 3]) ** 2 + (ee[1, 3] - T_center[1, 3]) ** 2):.4f}"
+    )
     print(f"Fingers: {finger_pos()}")
 
     # Re-open fingers to see where they should be

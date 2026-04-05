@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Grasp-aware collision checking for motion planning.
 
 Collision detection is handled entirely in software by filtering MuJoCo
@@ -151,8 +154,14 @@ class CollisionChecker:
 
             if body1_is_robot and body2_is_robot:
                 if self._is_gripper_object_contact(
-                    body1, body1_name, body1_is_arm, body1_is_grasped,
-                    body2, body2_name, body2_is_arm, body2_is_grasped,
+                    body1,
+                    body1_name,
+                    body1_is_arm,
+                    body1_is_grasped,
+                    body2,
+                    body2_name,
+                    body2_is_arm,
+                    body2_is_grasped,
                 ):
                     continue
                 contacts.append((body1_name, body2_name, -contact.dist * 1000))
@@ -171,9 +180,7 @@ class CollisionChecker:
             results[i] = self.is_valid(q)
         return results
 
-    def is_arm_in_collision(
-        self, q: np.ndarray | None = None, min_penetration: float = 0.005
-    ) -> bool:
+    def is_arm_in_collision(self, q: np.ndarray | None = None, min_penetration: float = 0.005) -> bool:
         """Check if arm links are colliding with environment.
 
         For reactive cartesian control: allows gripper-object and
@@ -265,9 +272,7 @@ class CollisionChecker:
 
         # Snapshot mode: inline pose update
         for obj_name, (gripper_body_name, T_gripper_object) in self._attachments.items():
-            gripper_id = mujoco.mj_name2id(
-                self.model, mujoco.mjtObj.mjOBJ_BODY, gripper_body_name
-            )
+            gripper_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, gripper_body_name)
             if gripper_id == -1:
                 continue
 
@@ -280,9 +285,7 @@ class CollisionChecker:
             T_world_object = T_world_gripper @ T_gripper_object
             self._set_body_pose(obj_name, T_world_object, data)
 
-    def _set_body_pose(
-        self, body_name: str, T: np.ndarray, data: mujoco.MjData
-    ) -> None:
+    def _set_body_pose(self, body_name: str, T: np.ndarray, data: mujoco.MjData) -> None:
         """Set the pose of a freejoint body."""
         body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
         if body_id == -1:
@@ -304,9 +307,7 @@ class CollisionChecker:
         data.qpos[qpos_adr : qpos_adr + 3] = pos
         data.qpos[qpos_adr + 3 : qpos_adr + 7] = quat
 
-    def _count_invalid_contacts(
-        self, data: mujoco.MjData, debug: bool = False
-    ) -> int:
+    def _count_invalid_contacts(self, data: mujoco.MjData, debug: bool = False) -> int:
         """Count contacts that indicate invalid collisions.
 
         Treats grasped objects as part of the robot:
@@ -334,8 +335,14 @@ class CollisionChecker:
 
             if body1_is_robot and body2_is_robot:
                 if self._is_gripper_object_contact(
-                    body1, body1_name, body1_is_arm, body1_is_grasped,
-                    body2, body2_name, body2_is_arm, body2_is_grasped,
+                    body1,
+                    body1_name,
+                    body1_is_arm,
+                    body1_is_grasped,
+                    body2,
+                    body2_name,
+                    body2_is_arm,
+                    body2_is_grasped,
                 ):
                     if debug:
                         logger.debug("  [OK] Gripper-object: %s <-> %s", body1_name, body2_name)
@@ -355,8 +362,14 @@ class CollisionChecker:
 
     def _is_gripper_object_contact(
         self,
-        body1: int, body1_name: str | None, body1_is_arm: bool, body1_is_grasped: bool,
-        body2: int, body2_name: str | None, body2_is_arm: bool, body2_is_grasped: bool,
+        body1: int,
+        body1_name: str | None,
+        body1_is_arm: bool,
+        body1_is_grasped: bool,
+        body2: int,
+        body2_name: str | None,
+        body2_is_arm: bool,
+        body2_is_grasped: bool,
     ) -> bool:
         """Check if contact is between a grasped object and its holding gripper."""
         if body1_is_grasped and body2_is_arm:
@@ -374,13 +387,9 @@ class CollisionChecker:
 
         gripper_base_name = self._get_gripper_base_name(gripper_body_name)
         if gripper_base_name is None:
-            gripper_base_id = mujoco.mj_name2id(
-                self.model, mujoco.mjtObj.mjOBJ_BODY, gripper_body_name
-            )
+            gripper_base_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, gripper_body_name)
         else:
-            gripper_base_id = mujoco.mj_name2id(
-                self.model, mujoco.mjtObj.mjOBJ_BODY, gripper_base_name
-            )
+            gripper_base_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, gripper_base_name)
 
         if gripper_base_id == -1:
             return False
@@ -398,9 +407,7 @@ class CollisionChecker:
             return None
 
         gripper_base_name = f"{parts[0]}/base"
-        body_id = mujoco.mj_name2id(
-            self.model, mujoco.mjtObj.mjOBJ_BODY, gripper_base_name
-        )
+        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, gripper_base_name)
         return gripper_base_name if body_id != -1 else None
 
     def _get_body_and_descendants(self, body_id: int) -> set[int]:

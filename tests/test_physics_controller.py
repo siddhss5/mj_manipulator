@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Tests for PhysicsController.
 
 Uses shared test fixtures from conftest.py (MockArm, model_and_data).
@@ -5,6 +8,7 @@ Uses shared test fixtures from conftest.py (MockArm, model_and_data).
 
 import numpy as np
 import pytest
+from conftest import MockArm, make_trajectory
 
 from mj_manipulator.config import PhysicsExecutionConfig
 from mj_manipulator.physics_controller import (
@@ -13,14 +17,14 @@ from mj_manipulator.physics_controller import (
 )
 from mj_manipulator.trajectory import Trajectory
 
-from conftest import MockArm, make_trajectory
-
 
 @pytest.fixture
 def controller(model_and_data, mock_arm):
     model, data = model_and_data
     return PhysicsController(
-        model, data, {"test_arm": mock_arm},
+        model,
+        data,
+        {"test_arm": mock_arm},
         config=PhysicsExecutionConfig(control_dt=0.002),
     )
 
@@ -35,7 +39,7 @@ class TestPhysicsControllerConstruction:
     def test_constructs_with_initial_positions(self, model_and_data, mock_arm):
         model, data = model_and_data
         init_pos = {"arm": np.array([0.5, -0.5])}
-        ctrl = PhysicsController(model, data, {"arm": mock_arm}, initial_positions=init_pos)
+        PhysicsController(model, data, {"arm": mock_arm}, initial_positions=init_pos)
         # qpos should be set to initial positions
         for i, idx in enumerate(mock_arm.joint_qpos_indices):
             assert abs(data.qpos[idx] - init_pos["arm"][i]) < 1e-6
@@ -66,21 +70,26 @@ class TestPhysicsControllerStepping:
             data.qpos[idx] = 0.42
         controller.hold_all()
         np.testing.assert_allclose(
-            controller._arms["test_arm"].target_position, [0.42, 0.42],
+            controller._arms["test_arm"].target_position,
+            [0.42, 0.42],
         )
 
     def test_set_arm_target(self, controller):
         controller.set_arm_target("test_arm", np.array([1.0, 2.0]))
         np.testing.assert_allclose(
-            controller._arms["test_arm"].target_position, [1.0, 2.0],
+            controller._arms["test_arm"].target_position,
+            [1.0, 2.0],
         )
 
     def test_set_arm_target_with_velocity(self, controller):
         controller.set_arm_target(
-            "test_arm", np.array([1.0, 2.0]), velocity=np.array([0.1, 0.2]),
+            "test_arm",
+            np.array([1.0, 2.0]),
+            velocity=np.array([0.1, 0.2]),
         )
         np.testing.assert_allclose(
-            controller._arms["test_arm"].target_velocity, [0.1, 0.2],
+            controller._arms["test_arm"].target_velocity,
+            [0.1, 0.2],
         )
 
     def test_set_arm_target_unknown_raises(self, controller):
@@ -90,7 +99,9 @@ class TestPhysicsControllerStepping:
     def test_step_reactive(self, controller, model_and_data):
         _, data = model_and_data
         controller.step_reactive(
-            "test_arm", np.array([0.5, -0.5]), np.array([0.1, 0.1]),
+            "test_arm",
+            np.array([0.5, -0.5]),
+            np.array([0.1, 0.1]),
         )
         # Actuators should have been commanded with reactive lookahead
         # cmd = 0.5 + 2*0.002*0.1 = 0.5004
@@ -112,7 +123,9 @@ class TestPhysicsControllerExecution:
         """
         model, data = model_and_data
         return PhysicsController(
-            model, data, {"test_arm": mock_arm},
+            model,
+            data,
+            {"test_arm": mock_arm},
             config=PhysicsExecutionConfig(
                 control_dt=0.002,
                 position_tolerance=0.3,
@@ -122,11 +135,13 @@ class TestPhysicsControllerExecution:
         )
 
     def test_execute_trajectory(self, lenient_controller):
-        positions = np.array([
-            [0.0, 0.0],
-            [0.1, 0.1],
-            [0.2, 0.2],
-        ])
+        positions = np.array(
+            [
+                [0.0, 0.0],
+                [0.1, 0.1],
+                [0.2, 0.2],
+            ]
+        )
         traj = make_trajectory(positions, entity="test_arm")
         result = lenient_controller.execute("test_arm", traj)
         assert result is True
@@ -159,10 +174,12 @@ class TestPhysicsControllerExecution:
 
     def test_executor_delegates_to_controller(self, lenient_controller):
         executor = lenient_controller.get_executor("test_arm")
-        positions = np.array([
-            [0.0, 0.0],
-            [0.1, 0.1],
-        ])
+        positions = np.array(
+            [
+                [0.0, 0.0],
+                [0.1, 0.1],
+            ]
+        )
         traj = make_trajectory(positions, entity="test_arm")
         result = executor.execute(traj)
         assert result is True
@@ -180,7 +197,9 @@ class TestPhysicsControllerMultiArm:
         arm2 = MockArm("arm2", model, data)
 
         ctrl = PhysicsController(
-            model, data, {"arm1": arm1, "arm2": arm2},
+            model,
+            data,
+            {"arm1": arm1, "arm2": arm2},
             config=PhysicsExecutionConfig(control_dt=0.002),
         )
 

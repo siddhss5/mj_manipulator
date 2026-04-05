@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Trajectory representation and time-optimal retiming using TOPP-RA."""
 
 from dataclasses import dataclass
@@ -33,33 +36,24 @@ class Trajectory:
         """Validate trajectory dimensions."""
         n_waypoints = len(self.timestamps)
         if self.positions.shape[0] != n_waypoints:
-            raise ValueError(
-                f"Position shape {self.positions.shape} doesn't match "
-                f"timestamps length {n_waypoints}"
-            )
+            raise ValueError(f"Position shape {self.positions.shape} doesn't match timestamps length {n_waypoints}")
         if self.velocities.shape[0] != n_waypoints:
-            raise ValueError(
-                f"Velocity shape {self.velocities.shape} doesn't match "
-                f"timestamps length {n_waypoints}"
-            )
+            raise ValueError(f"Velocity shape {self.velocities.shape} doesn't match timestamps length {n_waypoints}")
         if self.accelerations.shape[0] != n_waypoints:
             raise ValueError(
-                f"Acceleration shape {self.accelerations.shape} doesn't match "
-                f"timestamps length {n_waypoints}"
+                f"Acceleration shape {self.accelerations.shape} doesn't match timestamps length {n_waypoints}"
             )
 
         if self.positions.shape[1] != self.velocities.shape[1]:
             raise ValueError(
-                f"DOF mismatch: positions {self.positions.shape[1]} "
-                f"vs velocities {self.velocities.shape[1]}"
+                f"DOF mismatch: positions {self.positions.shape[1]} vs velocities {self.velocities.shape[1]}"
             )
 
         # Validate joint_names length matches DOF if provided
         if self.joint_names is not None:
             if len(self.joint_names) != self.positions.shape[1]:
                 raise ValueError(
-                    f"joint_names length {len(self.joint_names)} doesn't match "
-                    f"DOF {self.positions.shape[1]}"
+                    f"joint_names length {len(self.joint_names)} doesn't match DOF {self.positions.shape[1]}"
                 )
 
     @property
@@ -140,15 +134,9 @@ class Trajectory:
 
         dof = path_array.shape[1]
         if len(vel_limits) != dof:
-            raise ValueError(
-                f"Velocity limits dimension {len(vel_limits)} doesn't match "
-                f"path DOF {dof}"
-            )
+            raise ValueError(f"Velocity limits dimension {len(vel_limits)} doesn't match path DOF {dof}")
         if len(acc_limits) != dof:
-            raise ValueError(
-                f"Acceleration limits dimension {len(acc_limits)} doesn't match "
-                f"path DOF {dof}"
-            )
+            raise ValueError(f"Acceleration limits dimension {len(acc_limits)} doesn't match path DOF {dof}")
 
         # Remove consecutive duplicate waypoints
         filtered_path = [path_array[0]]
@@ -169,9 +157,7 @@ class Trajectory:
                 joint_names=joint_names,
             )
 
-        path_positions = toppra.SplineInterpolator(
-            np.linspace(0, 1, len(path_array)), path_array
-        )
+        path_positions = toppra.SplineInterpolator(np.linspace(0, 1, len(path_array)), path_array)
 
         vel_limits_minmax = np.stack((-vel_limits, vel_limits)).T
         acc_limits_minmax = np.stack((-acc_limits, acc_limits)).T
@@ -189,8 +175,7 @@ class Trajectory:
 
         if jnt_traj is None:
             raise RuntimeError(
-                "TOPP-RA failed to find valid trajectory. "
-                "Path may violate velocity or acceleration constraints."
+                "TOPP-RA failed to find valid trajectory. Path may violate velocity or acceleration constraints."
             )
 
         duration = jnt_traj.duration

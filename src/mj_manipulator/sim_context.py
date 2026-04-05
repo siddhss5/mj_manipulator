@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Simulation execution context for MuJoCo.
 
 Implements the ExecutionContext protocol for MuJoCo simulation, with both
@@ -93,8 +96,7 @@ class SimArmController:
             grasped = gripper.kinematic_close()
             if grasped is None:
                 logger.warning(
-                    "Kinematic grasp: no contact detected%s "
-                    "(gripper pos=%.2f)",
+                    "Kinematic grasp: no contact detected%s (gripper pos=%.2f)",
                     f" with {object_name}" if object_name else "",
                     gripper.get_actual_position(),
                 )
@@ -102,7 +104,8 @@ class SimArmController:
         if grasped and self._arm.grasp_manager is not None:
             self._arm.grasp_manager.mark_grasped(grasped, arm_name)
             self._arm.grasp_manager.attach_object(
-                grasped, gripper.attachment_body,
+                grasped,
+                gripper.attachment_body,
             )
             logger.info("Grasped %s with %s arm", grasped, arm_name)
         elif not grasped:
@@ -232,8 +235,10 @@ class SimContext:
         # Create viewer if needed
         if self._viewer is None and not self._headless:
             self._viewer = mujoco.viewer.launch_passive(
-                self._model, self._data,
-                show_left_ui=False, show_right_ui=False,
+                self._model,
+                self._data,
+                show_left_ui=False,
+                show_right_ui=False,
             )
             self._owns_viewer = True
 
@@ -393,7 +398,8 @@ class SimContext:
 
         if name not in self._arm_controllers:
             self._arm_controllers[name] = SimArmController(
-                self._arms[name], self,
+                self._arms[name],
+                self,
             )
         return self._arm_controllers[name]
 
@@ -434,7 +440,9 @@ class SimContext:
             gripper_config = self._physics_config.gripper
 
         self._controller = PhysicsController(
-            self._model, self._data, self._arms,
+            self._model,
+            self._data,
+            self._arms,
             config=exec_config,
             gripper_config=gripper_config,
             viewer=self._viewer,
@@ -460,7 +468,8 @@ class SimContext:
 
         for name, arm in self._arms.items():
             self._executors[name] = KinematicExecutor(
-                self._model, self._data,
+                self._model,
+                self._data,
                 arm.joint_qpos_indices,
                 viewer=self._viewer,
                 grasp_manager=arm.grasp_manager,
@@ -471,7 +480,8 @@ class SimContext:
         for name, entity in self._entities.items():
             gm = getattr(entity, "grasp_manager", None)
             self._executors[name] = KinematicExecutor(
-                self._model, self._data,
+                self._model,
+                self._data,
                 entity.joint_qpos_indices,
                 viewer=self._viewer,
                 grasp_manager=gm,

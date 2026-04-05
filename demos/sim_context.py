@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """SimContext execution demo with UR5e and Franka Panda.
 
 Demonstrates the SimContext execution layer — the same ExecutionContext protocol
@@ -17,8 +20,8 @@ Usage:
 
 import mujoco
 import numpy as np
-
 from mj_environment import Environment
+
 from mj_manipulator.arms.franka import (
     FRANKA_HOME,
     add_franka_ee_site,
@@ -76,7 +79,10 @@ def demo_execute(arm, env, home, goal, label, physics_config):
             kwargs["physics"] = False
 
         with SimContext(
-            env.model, env.data, {arm.config.name: arm}, **kwargs,
+            env.model,
+            env.data,
+            {arm.config.name: arm},
+            **kwargs,
         ) as ctx:
             result = ctx.execute(traj)
 
@@ -102,7 +108,10 @@ def demo_step(arm, env, home, goal, label, physics_config, n_steps=50):
             kwargs["physics"] = False
 
         with SimContext(
-            env.model, env.data, {arm.config.name: arm}, **kwargs,
+            env.model,
+            env.data,
+            {arm.config.name: arm},
+            **kwargs,
         ) as ctx:
             # Linear interpolation from home → goal
             for i in range(n_steps + 1):
@@ -132,7 +141,10 @@ def demo_step_cartesian(arm, env, home, goal, label, physics_config, n_steps=50)
             kwargs["physics"] = False
 
         with SimContext(
-            env.model, env.data, {arm.config.name: arm}, **kwargs,
+            env.model,
+            env.data,
+            {arm.config.name: arm},
+            **kwargs,
         ) as ctx:
             # Linear interpolation with velocity estimate
             dt = ctx.control_dt
@@ -191,7 +203,12 @@ def main():
     demo_execute(franka, franka_env, FRANKA_HOME, franka_goal, "Franka", physics_config)
     demo_step(franka, franka_env, FRANKA_HOME, franka_goal, "Franka", physics_config)
     demo_step_cartesian(
-        franka, franka_env, FRANKA_HOME, franka_goal, "Franka", physics_config,
+        franka,
+        franka_env,
+        FRANKA_HOME,
+        franka_goal,
+        "Franka",
+        physics_config,
     )
 
     print_header(

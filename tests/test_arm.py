@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Tests for the generic Arm class.
 
 Uses real menagerie robot models (UR5e) to verify state queries,
@@ -7,7 +10,6 @@ forward kinematics, and motion planning.
 import mujoco
 import numpy as np
 import pytest
-
 from mj_environment import Environment
 
 from mj_manipulator.arm import Arm, ArmRobotModel, ContextRobotModel
@@ -15,8 +17,12 @@ from mj_manipulator.config import ArmConfig, KinematicLimits
 
 # UR5e constants
 UR5E_JOINTS = [
-    "shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
-    "wrist_1_joint", "wrist_2_joint", "wrist_3_joint",
+    "shoulder_pan_joint",
+    "shoulder_lift_joint",
+    "elbow_joint",
+    "wrist_1_joint",
+    "wrist_2_joint",
+    "wrist_3_joint",
 ]
 UR5E_HOME = np.array([-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0])
 UR5E_VEL = np.array([3.14, 3.14, 3.14, 6.28, 6.28, 6.28]) * 0.5
@@ -43,6 +49,7 @@ def ur5e_env():
     """Create Environment with UR5e scene."""
     try:
         from mj_manipulator.menagerie import menagerie_scene
+
         scene = menagerie_scene("universal_robots_ur5e")
     except FileNotFoundError:
         pytest.skip("mujoco_menagerie not found")
@@ -97,9 +104,7 @@ class TestStateQueries:
         pose = ur5e_arm.get_ee_pose()
         assert pose.shape == (4, 4)
         # Valid rotation matrix: det = 1
-        np.testing.assert_allclose(
-            np.linalg.det(pose[:3, :3]), 1.0, atol=1e-6
-        )
+        np.testing.assert_allclose(np.linalg.det(pose[:3, :3]), 1.0, atol=1e-6)
 
     def test_actuator_discovery(self, ur5e_arm):
         """Actuator IDs are found for all joints."""
@@ -267,9 +272,7 @@ class TestPlanning:
         assert traj.dof == 6
         assert traj.duration > 0
         assert traj.entity == "ur5e"
-        np.testing.assert_allclose(
-            traj.positions[-1], q_goal, atol=0.05
-        )
+        np.testing.assert_allclose(traj.positions[-1], q_goal, atol=0.05)
 
     def test_plan_to_pose_requires_ik(self, ur5e_arm):
         """plan_to_pose raises without IK solver."""

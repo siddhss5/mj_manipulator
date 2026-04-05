@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Analytical IK demo with EAIK — UR5e and Franka Panda.
 
 Showcases the MuJoCoEAIKSolver which extracts joint axes (H) and position
@@ -20,8 +23,8 @@ import time
 
 import mujoco
 import numpy as np
-
 from mj_environment import Environment
+
 from mj_manipulator.arms.franka import (
     FRANKA_HOME,
     add_franka_ee_site,
@@ -53,11 +56,11 @@ def demo_kinematics(arm, label):
 
     print(f"\n  Joint axes H ({solver.H.shape}):")
     for i, h in enumerate(solver.H):
-        print(f"    Joint {i+1}: [{h[0]:7.4f}, {h[1]:7.4f}, {h[2]:7.4f}]")
+        print(f"    Joint {i + 1}: [{h[0]:7.4f}, {h[1]:7.4f}, {h[2]:7.4f}]")
 
     print(f"\n  Position offsets P ({solver.P.shape}):")
     for i, p in enumerate(solver.P):
-        label_p = f"Joint {i+1}" if i < len(solver.H) else "EE"
+        label_p = f"Joint {i + 1}" if i < len(solver.H) else "EE"
         print(f"    {label_p:>7s}: [{p[0]:8.5f}, {p[1]:8.5f}, {p[2]:8.5f}]")
 
     if solver.robot is not None:
@@ -93,13 +96,9 @@ def demo_ik_analysis(arm, q_test, config_name, label):
 
     # Filter to within-limits solutions (avoids redundant solve call)
     lower, upper = arm.get_joint_limits()
-    valid_solutions = [
-        q for q in all_solutions
-        if np.all(q >= lower) and np.all(q <= upper)
-    ]
+    valid_solutions = [q for q in all_solutions if np.all(q >= lower) and np.all(q <= upper)]
 
-    print(f"    Solutions: {len(all_solutions)} total, "
-          f"{len(valid_solutions)} within limits  ({t_solve:.1f} ms)")
+    print(f"    Solutions: {len(all_solutions)} total, {len(valid_solutions)} within limits  ({t_solve:.1f} ms)")
 
     if not all_solutions:
         print("    WARNING: No IK solutions found!")
@@ -113,9 +112,11 @@ def demo_ik_analysis(arm, q_test, config_name, label):
         errors.append(err)
 
     errors = np.array(errors)
-    print(f"    FK errors: min={errors.min()*1000:.4f} mm, "
-          f"max={errors.max()*1000:.4f} mm, "
-          f"mean={errors.mean()*1000:.4f} mm")
+    print(
+        f"    FK errors: min={errors.min() * 1000:.4f} mm, "
+        f"max={errors.max() * 1000:.4f} mm, "
+        f"mean={errors.mean() * 1000:.4f} mm"
+    )
 
     # Show a few solutions
     n_show = min(3, len(valid_solutions))
@@ -123,8 +124,7 @@ def demo_ik_analysis(arm, q_test, config_name, label):
         q = valid_solutions[i]
         fk = arm.forward_kinematics(q)
         err = np.linalg.norm(fk[:3, 3] - pos)
-        print(f"    Sol {i+1}: q={np.array2string(q, precision=3)}"
-              f"  err={err*1000:.4f}mm")
+        print(f"    Sol {i + 1}: q={np.array2string(q, precision=3)}  err={err * 1000:.4f}mm")
 
 
 def demo_ik_configs(arm, configs, label):
@@ -165,9 +165,9 @@ def demo_roundtrip(arm, label):
             best_q_err = q_err
             best_pos_err = pos_err
 
-    print(f"\n  Closest solution:")
+    print("\n  Closest solution:")
     print(f"    Joint-space error: {best_q_err:.6f} rad")
-    print(f"    Position error:    {best_pos_err*1000:.4f} mm")
+    print(f"    Position error:    {best_pos_err * 1000:.4f} mm")
 
 
 # ---------------------------------------------------------------------------

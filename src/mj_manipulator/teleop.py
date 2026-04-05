@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Teleop controller for interactive arm control.
 
 Accepts either SE(3) poses (from a gizmo, VR controller, mouse) or 6D twists
@@ -31,7 +34,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -225,9 +228,7 @@ class TeleopController:
             self._execute_gripper_toggle()
 
         # No input yet, or twist timed out → idle
-        if mode is None or (
-            mode == "twist" and time.monotonic() - last_input > self._config.idle_timeout
-        ):
+        if mode is None or (mode == "twist" and time.monotonic() - last_input > self._config.idle_timeout):
             self._state = TeleopState.IDLE
             return self._state
 
@@ -252,7 +253,8 @@ class TeleopController:
 
         # Record frame if recording (both clean tracking and collision tracking)
         if self._recording and self._state in (
-            TeleopState.TRACKING, TeleopState.TRACKING_COLLISION,
+            TeleopState.TRACKING,
+            TeleopState.TRACKING_COLLISION,
         ):
             self._record_frame()
 
@@ -317,7 +319,6 @@ class TeleopController:
 
         # Pause pose tracking during gripper actuation
         with self._lock:
-            saved_pose = self._target_pose
             self._target_pose = None
             self._input_mode = None
 
@@ -418,10 +419,9 @@ class TeleopController:
 
         Must be called while holding the sim lock.
         """
-        if not hasattr(self._arm, 'env'):
+        if not hasattr(self._arm, "env"):
             return False
         import mujoco
-        from mj_manipulator.collision import CollisionChecker
 
         model = self._arm.env.model
         data = self._arm.env.data
@@ -506,7 +506,9 @@ class TeleopController:
         return self._check_and_commit(q_best)
 
     def _pick_closest(
-        self, solutions: list[np.ndarray], q_current: np.ndarray,
+        self,
+        solutions: list[np.ndarray],
+        q_current: np.ndarray,
     ) -> np.ndarray | None:
         """Pick the IK solution closest to current config.
 
@@ -553,7 +555,8 @@ class TeleopController:
                 self._ctx.step_cartesian(arm_name, q, qd)
 
             self._cart_ctrl = CartesianController.from_arm(
-                self._arm, step_fn=step_fn,
+                self._arm,
+                step_fn=step_fn,
             )
         return self._cart_ctrl
 
@@ -563,9 +566,11 @@ class TeleopController:
         """Capture current state as a TeleopFrame."""
         gripper = self._arm.gripper
         gripper_pos = gripper.get_actual_position() if gripper is not None else 0.0
-        self._frames.append(TeleopFrame(
-            timestamp=time.monotonic() - self._record_start,
-            joint_positions=self._arm.get_joint_positions().copy(),
-            ee_pose=self._arm.get_ee_pose().copy(),
-            gripper_position=float(gripper_pos),
-        ))
+        self._frames.append(
+            TeleopFrame(
+                timestamp=time.monotonic() - self._record_start,
+                joint_positions=self._arm.get_joint_positions().copy(),
+                ee_pose=self._arm.get_ee_pose().copy(),
+                gripper_position=float(gripper_pos),
+            )
+        )

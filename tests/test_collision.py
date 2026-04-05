@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Tests for unified CollisionChecker.
 
 Uses a minimal inline MuJoCo model with a 2-DOF arm and freejoint objects.
@@ -131,7 +134,9 @@ class TestCollisionCheckerSnapshotMode:
         """Snapshot mode constructs with frozen state."""
         model, data = model_and_data
         cc = CollisionChecker(
-            model, data, joint_names,
+            model,
+            data,
+            joint_names,
             grasped_objects=frozenset([("mug", "right")]),
             attachments={},
         )
@@ -142,7 +147,9 @@ class TestCollisionCheckerSnapshotMode:
         model, data = model_and_data
         private_data = mujoco.MjData(model)
         cc = CollisionChecker(
-            model, private_data, joint_names,
+            model,
+            private_data,
+            joint_names,
             grasped_objects=frozenset(),
             attachments={},
         )
@@ -164,7 +171,9 @@ class TestCollisionCheckerSnapshotMode:
         mujoco.mj_forward(model, private_data)
 
         cc = CollisionChecker(
-            model, private_data, joint_names,
+            model,
+            private_data,
+            joint_names,
             grasped_objects=grasped,
             attachments=attachments,
         )
@@ -180,12 +189,16 @@ class TestCollisionCheckerSnapshotMode:
         data2 = mujoco.MjData(model)
 
         cc1 = CollisionChecker(
-            model, data1, joint_names,
+            model,
+            data1,
+            joint_names,
             grasped_objects=frozenset(),
             attachments={},
         )
         cc2 = CollisionChecker(
-            model, data2, joint_names,
+            model,
+            data2,
+            joint_names,
             grasped_objects=frozenset(),
             attachments={},
         )

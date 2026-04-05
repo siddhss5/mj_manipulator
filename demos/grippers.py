@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Gripper demo with Robotiq 2F-140 and Franka Hand.
 
 Demonstrates the Gripper protocol implementations:
@@ -17,12 +20,9 @@ Usage:
 from pathlib import Path
 
 import mujoco
-import numpy as np
-
 from mj_environment import Environment
 
 from mj_manipulator.arms.franka import (
-    FRANKA_HOME,
     add_franka_ee_site,
     create_franka_arm,
 )
@@ -162,18 +162,18 @@ def demo_franka_integration():
     # so we use mark_grasped/mark_released directly rather than going through
     # SimContext.arm().grasp() which requires a real body for attach_object).
     gripper.kinematic_close(steps=10)
-    print(f"\n  After kinematic_close:")
+    print("\n  After kinematic_close:")
     print(f"    position:    {gripper.get_actual_position():.3f}")
     print(f"    is_holding:  {gripper.is_holding}")
 
     gm.mark_grasped("mug", "franka")
-    print(f"\n  After GraspManager.mark_grasped('mug', 'franka'):")
+    print("\n  After GraspManager.mark_grasped('mug', 'franka'):")
     print(f"    is_holding:  {gripper.is_holding}")
     print(f"    held_object: {gripper.held_object}")
 
     gm.mark_released("mug")
     gripper.kinematic_open()
-    print(f"\n  After mark_released + kinematic_open:")
+    print("\n  After mark_released + kinematic_open:")
     print(f"    is_holding:  {gripper.is_holding}")
     print(f"    held_object: {gripper.held_object}")
     print(f"    position:    {gripper.get_actual_position():.3f}")

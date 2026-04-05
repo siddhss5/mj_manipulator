@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Behavior tree leaf nodes wrapping mj_manipulator operations.
 
 Each node reads inputs from the blackboard, calls one mj_manipulator
@@ -279,8 +282,7 @@ class CheckNotNearConfig(_ManipulationNode):
     Reads: ``{ns}/arm``, ``{ns}/goal_config``
     """
 
-    def __init__(self, ns: str = "", name: str = "CheckNotNearConfig",
-                 tolerance: float = 0.1):
+    def __init__(self, ns: str = "", name: str = "CheckNotNearConfig", tolerance: float = 0.1):
         super().__init__(name, ns)
         self._tolerance = tolerance
         self.bb.register_key(key=self._key("arm"), access=Access.READ)

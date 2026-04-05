@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Multi-arm physics controller for MuJoCo simulation.
 
 Coordinates all arm and gripper actuators each physics step to prevent
@@ -131,9 +134,7 @@ class PhysicsController:
 
         self.control_dt = self.config.control_dt
         self.lookahead_time = self.config.lookahead_time
-        self.steps_per_control = max(
-            1, int(self.control_dt / model.opt.timestep)
-        )
+        self.steps_per_control = max(1, int(self.control_dt / model.opt.timestep))
 
         self._last_viewer_sync = 0.0
         self._viewer_sync_interval = viewer_sync_interval
@@ -176,7 +177,8 @@ class PhysicsController:
                 actuator_ids=np.array(entity.actuator_ids, dtype=np.intp),
                 joint_qpos_indices=qpos_idx,
                 joint_qvel_indices=np.array(
-                    entity.joint_qvel_indices, dtype=np.intp,
+                    entity.joint_qvel_indices,
+                    dtype=np.intp,
                 ),
                 target_position=target_pos,
                 target_velocity=np.zeros(len(qpos_idx)),
@@ -228,8 +230,7 @@ class PhysicsController:
         state = self._arms[arm_name]
         state.target_position = np.asarray(position).copy()
         state.target_velocity = (
-            np.asarray(velocity).copy() if velocity is not None
-            else np.zeros(len(state.actuator_ids))
+            np.asarray(velocity).copy() if velocity is not None else np.zeros(len(state.actuator_ids))
         )
 
     # -- Physics stepping ---------------------------------------------------
@@ -242,18 +243,12 @@ class PhysicsController:
         """
         # Arm actuators: position + velocity feedforward
         for state in self._arms.values():
-            q_cmd = (
-                state.target_position
-                + self.lookahead_time * state.target_velocity
-            )
+            q_cmd = state.target_position + self.lookahead_time * state.target_velocity
             self.data.ctrl[state.actuator_ids] = q_cmd
 
         # Entity actuators (bases, etc.): same feedforward
         for state in self._entities.values():
-            q_cmd = (
-                state.target_position
-                + self.lookahead_time * state.target_velocity
-            )
+            q_cmd = state.target_position + self.lookahead_time * state.target_velocity
             self.data.ctrl[state.actuator_ids] = q_cmd
 
         self._step_physics()
@@ -281,16 +276,12 @@ class PhysicsController:
         state = self._arms[arm_name]
         state.target_position = np.asarray(position).copy()
         state.target_velocity = (
-            np.asarray(velocity).copy() if velocity is not None
-            else np.zeros(len(state.actuator_ids))
+            np.asarray(velocity).copy() if velocity is not None else np.zeros(len(state.actuator_ids))
         )
 
         # Reactive arm: small lookahead
         reactive_lookahead = 2.0 * self.control_dt
-        q_cmd = (
-            state.target_position
-            + reactive_lookahead * state.target_velocity
-        )
+        q_cmd = state.target_position + reactive_lookahead * state.target_velocity
         self.data.ctrl[state.actuator_ids] = q_cmd
 
         # Other arms: hold position (no velocity feedforward)
@@ -322,8 +313,7 @@ class PhysicsController:
 
         if trajectory.dof != len(state.joint_qpos_indices):
             raise ValueError(
-                f"Trajectory DOF {trajectory.dof} doesn't match "
-                f"arm joint count {len(state.joint_qpos_indices)}"
+                f"Trajectory DOF {trajectory.dof} doesn't match arm joint count {len(state.joint_qpos_indices)}"
             )
 
         # Follow trajectory at real-time rate
@@ -381,13 +371,11 @@ class PhysicsController:
 
             current_vel = self.data.qvel[state.joint_qvel_indices]
 
-            if (np.all(pos_error < position_tolerance)
-                    and np.all(np.abs(current_vel) < velocity_tolerance)):
+            if np.all(pos_error < position_tolerance) and np.all(np.abs(current_vel) < velocity_tolerance):
                 return True
 
         logger.warning(
-            "Convergence timeout for %s: max_pos_err=%.2f° (limit %.2f°), "
-            "max_vel=%.3f rad/s (limit %.3f)",
+            "Convergence timeout for %s: max_pos_err=%.2f° (limit %.2f°), max_vel=%.3f rad/s (limit %.3f)",
             arm_name,
             np.rad2deg(np.max(pos_error)),
             np.rad2deg(position_tolerance),
@@ -451,7 +439,8 @@ class PhysicsController:
             # Check contacts periodically (unilateral during closing)
             if i % cfg.contact_check_interval == 0 and not contacts_detected:
                 grasped = detect_grasped_object(
-                    self.model, self.data,
+                    self.model,
+                    self.data,
                     gripper.gripper_body_names,
                     candidate_objects,
                     require_bilateral=False,
@@ -472,7 +461,8 @@ class PhysicsController:
 
         # Final bilateral detection (robust)
         grasped = detect_grasped_object(
-            self.model, self.data,
+            self.model,
+            self.data,
             gripper.gripper_body_names,
             candidate_objects,
             require_bilateral=True,
@@ -482,7 +472,8 @@ class PhysicsController:
         if not grasped:
             # Fallback to unilateral
             grasped = detect_grasped_object(
-                self.model, self.data,
+                self.model,
+                self.data,
                 gripper.gripper_body_names,
                 candidate_objects,
                 require_bilateral=False,
@@ -490,9 +481,9 @@ class PhysicsController:
             )
             if grasped:
                 logger.warning(
-                    "Gripper %s: only unilateral contact with %s "
-                    "— grasp may be unstable",
-                    arm_name, grasped,
+                    "Gripper %s: only unilateral contact with %s — grasp may be unstable",
+                    arm_name,
+                    grasped,
                 )
 
         # Warn if fully closed with no contacts (missed object)
@@ -501,7 +492,8 @@ class PhysicsController:
             if gripper_pos > cfg.fully_closed_threshold:
                 logger.warning(
                     "Gripper %s: fully closed (pos=%.3f) with no contacts",
-                    arm_name, gripper_pos,
+                    arm_name,
+                    gripper_pos,
                 )
 
         return grasped
@@ -551,8 +543,7 @@ class PhysicsController:
 
         if trajectory.dof != len(state.joint_qpos_indices):
             raise ValueError(
-                f"Trajectory DOF {trajectory.dof} doesn't match "
-                f"entity joint count {len(state.joint_qpos_indices)}"
+                f"Trajectory DOF {trajectory.dof} doesn't match entity joint count {len(state.joint_qpos_indices)}"
             )
 
         realtime = self.viewer is not None
