@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Recycling demo — pick up soda cans and drop them in a recycling bin.
 
 End-to-end integration demo showing the full workspace stack:
@@ -43,22 +46,23 @@ import mujoco
 import numpy as np
 from asset_manager import AssetManager
 from mj_environment import Environment
-from mj_manipulator.cartesian import CartesianController
+from prl_assets import OBJECTS_DIR
+from tsr.hands import FrankaHand, Robotiq2F140
+from tsr.placement import StablePlacer
+
 from mj_manipulator.arms.franka import (
     FRANKA_HOME,
     add_franka_ee_site,
     create_franka_arm,
 )
 from mj_manipulator.arms.ur5e import UR5E_HOME, UR5E_ROBOTIQ_EE_SITE, create_ur5e_arm
+from mj_manipulator.cartesian import CartesianController
 from mj_manipulator.config import PhysicsConfig, PhysicsExecutionConfig
 from mj_manipulator.grasp_manager import GraspManager
 from mj_manipulator.grippers.franka import FrankaGripper
 from mj_manipulator.grippers.robotiq import RobotiqGripper
 from mj_manipulator.menagerie import menagerie_scene
 from mj_manipulator.sim_context import SimContext
-from prl_assets import OBJECTS_DIR
-from tsr.hands import FrankaHand, Robotiq2F140
-from tsr.placement import StablePlacer
 
 if TYPE_CHECKING:
     from mj_manipulator.arm import Arm
@@ -70,18 +74,18 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-import geodude_assets
+import geodude_assets  # noqa: E402
 
-UR5E_SCENE   = menagerie_scene("universal_robots_ur5e")
+UR5E_SCENE = menagerie_scene("universal_robots_ur5e")
 FRANKA_SCENE = menagerie_scene("franka_emika_panda")
 ROBOTIQ_MODEL = geodude_assets.MODELS_DIR / "robotiq_2f140" / "2f140.xml"
 
 # ---------------------------------------------------------------------------
 # prl_assets — real soda can + recycling bin
 # ---------------------------------------------------------------------------
-_ASSETS  = AssetManager(str(OBJECTS_DIR))
-_CAN_GP  = _ASSETS.get("can")["geometric_properties"]   # radius=0.033, height=0.123
-_CAN_XML = _ASSETS.get_path("can",         "mujoco")
+_ASSETS = AssetManager(str(OBJECTS_DIR))
+_CAN_GP = _ASSETS.get("can")["geometric_properties"]  # radius=0.033, height=0.123
+_CAN_XML = _ASSETS.get_path("can", "mujoco")
 _BIN_XML = _ASSETS.get_path("yellow_tote", "mujoco")
 
 # Body names produced by MjSpec.attach_body() — prefix + original body name in XML
@@ -91,25 +95,28 @@ CAN_BODY_NAMES = [f"can_{i}/can" for i in range(3)]
 # At UR5E_HOME the arm extends toward +y, so placing the bin at y = −0.70
 # avoids any collision at the home configuration.
 # EE is placed 15 cm above the tote opening; the grasped can drops in on release.
-BIN_POS        = np.array([0.25, -0.70, 0.0])
-_TOTE_HEIGHT   = _ASSETS.get("yellow_tote")["geometric_properties"]["outer_size"][2]
-BIN_OPENING_Z  = BIN_POS[2] + _TOTE_HEIGHT   # 0.29 m
-BIN_PLACE_Z    = BIN_OPENING_Z + 0.15
+BIN_POS = np.array([0.25, -0.70, 0.0])
+_TOTE_HEIGHT = _ASSETS.get("yellow_tote")["geometric_properties"]["outer_size"][2]
+BIN_OPENING_Z = BIN_POS[2] + _TOTE_HEIGHT  # 0.29 m
+BIN_PLACE_Z = BIN_OPENING_Z + 0.15
 
 
 # ---------------------------------------------------------------------------
 # TSR grasp generation
 # ---------------------------------------------------------------------------
 _ROBOTIQ = Robotiq2F140()
-_FRANKA  = FrankaHand()
+_FRANKA = FrankaHand()
 
 # Place pose: top-down palm-down above the bin opening
-_TOP_DOWN = np.array([
-    [1,  0,  0, 0],
-    [0, -1,  0, 0],
-    [0,  0, -1, 0],
-    [0,  0,  0, 1],
-], dtype=float)
+_TOP_DOWN = np.array(
+    [
+        [1, 0, 0, 0],
+        [0, -1, 0, 0],
+        [0, 0, -1, 0],
+        [0, 0, 0, 1],
+    ],
+    dtype=float,
+)
 
 
 def make_grasp_tsrs(T_center: np.ndarray, robot_type: str) -> list:
@@ -121,7 +128,7 @@ def make_grasp_tsrs(T_center: np.ndarray, robot_type: str) -> list:
     """
     hand = _FRANKA if robot_type == "franka" else _ROBOTIQ
     T_bottom = T_center.copy()
-    T_bottom[2, 3] -= _CAN_GP["height"] / 2   # centre → bottom
+    T_bottom[2, 3] -= _CAN_GP["height"] / 2  # centre → bottom
     # Side grasps only — more stable for cylindrical objects
     templates = hand.grasp_cylinder_side(_CAN_GP["radius"], _CAN_GP["height"])
     return [t.instantiate(T_bottom) for t in templates]
@@ -196,8 +203,7 @@ def _add_table_and_cans(spec: mujoco.MjSpec, n_cans: int = 3) -> None:
             pose = tsr.sample()
             pos = pose[:3, 3]
             # Check separation from already-placed cans
-            if all(np.linalg.norm(pos[:2] - np.array(p[:2])) > min_separation
-                   for p in can_positions):
+            if all(np.linalg.norm(pos[:2] - np.array(p[:2])) > min_separation for p in can_positions):
                 break
         result = list(pos)
         result[2] -= can_body_offset_z
@@ -285,7 +291,7 @@ def setup_ur5e():
     # Attach Robotiq 2F-140 at the UR5e flange
     wrist = spec.worldbody.find_child("wrist_3_link")
     frame = wrist.add_frame()
-    frame.pos  = [0, 0.1, 0]
+    frame.pos = [0, 0.1, 0]
     frame.quat = [-1, 1, 0, 0]
     frame.attach_body(robotiq_spec.worldbody.first_body(), prefix="gripper/")
 
@@ -315,7 +321,8 @@ def cartesian_lift(ctx: SimContext, arm: Arm, height: float = 0.05) -> None:
     """Lift the EE straight up using Jacobian-based cartesian control."""
     arm_name = arm.config.name
     ctrl = CartesianController.from_arm(
-        arm, step_fn=lambda q, qd: ctx.step_cartesian(arm_name, q, qd),
+        arm,
+        step_fn=lambda q, qd: ctx.step_cartesian(arm_name, q, qd),
     )
     ctrl.move(
         np.array([0.0, 0.0, 0.10, 0.0, 0.0, 0.0]),  # 10 cm/s upward
@@ -326,7 +333,9 @@ def cartesian_lift(ctx: SimContext, arm: Arm, height: float = 0.05) -> None:
 
 
 def pickup(
-    ctx: SimContext, arm: Arm, grasp_tsrs: list,
+    ctx: SimContext,
+    arm: Arm,
+    grasp_tsrs: list,
     tsr_to_object: list[str],
 ) -> str | None:
     """Plan to any grasp TSR, execute, close gripper, lift.
@@ -378,7 +387,8 @@ def place(ctx: SimContext, arm: Arm, body_name: str) -> bool:
     traj = arm.retime(path)
     logger.info(
         "Executing placement (%d waypoints, %.2fs)...",
-        traj.num_waypoints, traj.duration,
+        traj.num_waypoints,
+        traj.duration,
     )
     if not ctx.execute(traj):
         logger.warning("Place execution failed")
@@ -415,17 +425,23 @@ def run_recycling(
         print(f"ERROR: Unknown robot type: {robot_type}")
         return
 
-    physics_config = PhysicsConfig(
-        execution=PhysicsExecutionConfig(
-            control_dt=0.008,
-            position_tolerance=0.15,
-            velocity_tolerance=0.5,
-            convergence_timeout_steps=5000,
-        ),
-    ) if physics else None
+    physics_config = (
+        PhysicsConfig(
+            execution=PhysicsExecutionConfig(
+                control_dt=0.008,
+                position_tolerance=0.15,
+                velocity_tolerance=0.5,
+                convergence_timeout_steps=5000,
+            ),
+        )
+        if physics
+        else None
+    )
 
     with SimContext(
-        env.model, env.data, {arm.config.name: arm},
+        env.model,
+        env.data,
+        {arm.config.name: arm},
         physics=physics,
         headless=headless,
         physics_config=physics_config,
@@ -438,7 +454,9 @@ def run_recycling(
             ctx.sync()
 
         arm_name = arm.config.name
-        _step_fn = lambda q, qd: ctx.step_cartesian(arm_name, q, qd)
+
+        def _step_fn(q, qd):
+            return ctx.step_cartesian(arm_name, q, qd)
 
         def recover():
             """Release any held object, retract up, return home."""
@@ -446,7 +464,7 @@ def run_recycling(
             ctx.arm(arm_name).release()
             # Cartesian retract upward to clear collisions
             ctrl = CartesianController.from_arm(arm, step_fn=_step_fn)
-            ctrl.move(np.array([0., 0., 0.10, 0., 0., 0.]), dt=0.004, max_distance=0.10)
+            ctrl.move(np.array([0.0, 0.0, 0.10, 0.0, 0.0, 0.0]), dt=0.004, max_distance=0.10)
             # Plan home
             try:
                 home_path = arm.plan_to_configuration(home, timeout=10.0)
@@ -475,7 +493,7 @@ def run_recycling(
 
             grasped = pickup(ctx, arm, all_tsrs, tsr_to_object)
             if grasped is None:
-                print(f"  FAILED to pick up any can")
+                print("  FAILED to pick up any can")
                 recover()
                 continue
 
@@ -516,13 +534,15 @@ def run_recycling(
 def main():
     parser = argparse.ArgumentParser(description="Recycling demo — mj_manipulator integration")
     parser.add_argument(
-        "--robot", choices=["ur5e", "franka", "both"], default="ur5e",
+        "--robot",
+        choices=["ur5e", "franka", "both"],
+        default="ur5e",
         help="Which robot to run (default: ur5e)",
     )
-    parser.add_argument("--physics",  action="store_true", help="Enable physics simulation")
+    parser.add_argument("--physics", action="store_true", help="Enable physics simulation")
     parser.add_argument("--headless", action="store_true", help="Run without viewer")
-    parser.add_argument("--cycles",   type=int, default=3,  help="Number of cans to recycle")
-    parser.add_argument("--debug",    action="store_true", help="Enable DEBUG logging")
+    parser.add_argument("--cycles", type=int, default=3, help="Number of cans to recycle")
+    parser.add_argument("--debug", action="store_true", help="Enable DEBUG logging")
     args = parser.parse_args()
 
     if args.debug:

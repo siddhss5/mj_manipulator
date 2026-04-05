@@ -1,19 +1,17 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Tests for generic configuration classes."""
 
 import numpy as np
-import pytest
 
 from mj_manipulator.config import (
     ArmConfig,
-    EntityConfig,
-    GripperPhysicsConfig,
     KinematicLimits,
     PhysicsConfig,
     PhysicsExecutionConfig,
     PlanningDefaults,
-    RecoveryConfig,
 )
-
 
 # -- Robot-specific config fixtures (UR5e and Franka) --
 # These demonstrate that ArmConfig works for any robot.
@@ -40,10 +38,17 @@ def ur5e_arm_config(side: str = "left") -> ArmConfig:
     return ArmConfig(
         name=f"{side}_arm",
         entity_type="arm",
-        joint_names=[f"{side}_ur5e/{j}" for j in [
-            "shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
-            "wrist_1_joint", "wrist_2_joint", "wrist_3_joint",
-        ]],
+        joint_names=[
+            f"{side}_ur5e/{j}"
+            for j in [
+                "shoulder_pan_joint",
+                "shoulder_lift_joint",
+                "elbow_joint",
+                "wrist_1_joint",
+                "wrist_2_joint",
+                "wrist_3_joint",
+            ]
+        ],
         kinematic_limits=ur5e_kinematic_limits(),
         ee_site=f"{side}_ur5e/gripper_attachment_site",
     )
@@ -124,9 +129,7 @@ class TestArmConfig:
             name="test",
             entity_type="wrong",  # Should be overridden
             joint_names=["j1"],
-            kinematic_limits=KinematicLimits(
-                velocity=np.array([1.0]), acceleration=np.array([1.0])
-            ),
+            kinematic_limits=KinematicLimits(velocity=np.array([1.0]), acceleration=np.array([1.0])),
         )
         assert config.entity_type == "arm"
 

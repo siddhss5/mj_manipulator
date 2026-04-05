@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Cartesian velocity control demo with UR5e and Franka Panda.
 
 Shows CartesianController in three modes:
@@ -14,8 +17,8 @@ Usage:
 
 import mujoco
 import numpy as np
-
 from mj_environment import Environment
+
 from mj_manipulator import CartesianController
 from mj_manipulator.arms.franka import FRANKA_HOME, add_franka_ee_site, create_franka_arm
 from mj_manipulator.arms.ur5e import UR5E_HOME, create_ur5e_arm
@@ -48,8 +51,8 @@ def demo_teleop(arm, label):
     data = arm.env.data
     ee_id = arm.ee_site_id
 
-    dt = 0.008        # 125 Hz
-    n_steps = 250     # 2 seconds
+    dt = 0.008  # 125 Hz
+    n_steps = 250  # 2 seconds
     twist = np.array([0, 0, -0.05, 0, 0, 0])  # 5 cm/s downward
 
     ee_start = data.site_xpos[ee_id].copy()
@@ -131,7 +134,7 @@ def demo_jacobian(arm, label):
 
     J = get_ee_jacobian(arm.env.model, arm.env.data, arm.ee_site_id, arm.joint_qvel_indices)
     sv = np.linalg.svd(J, compute_uv=False)
-    manipulability = float(np.prod(sv[:min(6, dof)]))
+    manipulability = float(np.prod(sv[: min(6, dof)]))
 
     print(f"\n  Jacobian shape:  {J.shape}")
     print(f"  Rank:            {np.linalg.matrix_rank(J, tol=1e-6)}")
@@ -154,19 +157,24 @@ def demo_qp_solver(arm, label):
     qd_max = arm.config.kinematic_limits.velocity
 
     twists = {
-        "X linear (5cm/s)":   np.array([0.05,  0,     0,    0,   0,   0]),
-        "Z linear (5cm/s)":   np.array([0,      0,    -0.05, 0,   0,   0]),
-        "Y rotation (0.2r/s)": np.array([0,     0,     0,    0,   0.2, 0]),
-        "Combined":            np.array([0.03,  0,    -0.02, 0,   0.1, 0]),
+        "X linear (5cm/s)": np.array([0.05, 0, 0, 0, 0, 0]),
+        "Z linear (5cm/s)": np.array([0, 0, -0.05, 0, 0, 0]),
+        "Y rotation (0.2r/s)": np.array([0, 0, 0, 0, 0.2, 0]),
+        "Combined": np.array([0.03, 0, -0.02, 0, 0.1, 0]),
     }
 
     print(f"\n  {'Twist':<22s}  {'Achieved%':>9s}  {'Limiter':>12s}  {'||qd||':>8s}")
-    print(f"  {'-'*22}  {'-'*9}  {'-'*12}  {'-'*8}")
+    print(f"  {'-' * 22}  {'-' * 9}  {'-' * 12}  {'-' * 8}")
 
     for name, twist in twists.items():
         result = twist_to_joint_velocity(
-            J=J, twist=twist, q_current=q_current,
-            q_min=q_min, q_max=q_max, qd_max=qd_max, dt=0.008,
+            J=J,
+            twist=twist,
+            q_current=q_current,
+            q_min=q_min,
+            q_max=q_max,
+            qd_max=qd_max,
+            dt=0.008,
         )
         limiter = result.limiting_factor or "none"
         print(
@@ -233,10 +241,7 @@ def main():
     franka_arm, franka_label = _load_arm("franka")
     run_demos(franka_arm, franka_label)
 
-    print_header(
-        "DONE — CartesianController works with\n"
-        "  UR5e (6-DOF) and Franka Panda (7-DOF)"
-    )
+    print_header("DONE — CartesianController works with\n  UR5e (6-DOF) and Franka Panda (7-DOF)")
     print()
 
 

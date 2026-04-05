@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Shared contact iteration utility for MuJoCo.
 
 Not part of the public API.
@@ -11,9 +14,7 @@ from typing import Any
 import mujoco
 
 
-def iter_contacts(
-    model: mujoco.MjModel, data: mujoco.MjData
-) -> Iterator[tuple[int, int, Any]]:
+def iter_contacts(model: mujoco.MjModel, data: mujoco.MjData) -> Iterator[tuple[int, int, Any]]:
     """Iterate over active MuJoCo contacts.
 
     Yields:

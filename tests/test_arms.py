@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Tests for the arms/ module — UR5e and Franka arm factories + IK solvers.
 
 Uses real menagerie robot models to verify:
@@ -10,7 +13,6 @@ Uses real menagerie robot models to verify:
 import mujoco
 import numpy as np
 import pytest
-
 from mj_environment import Environment
 
 from mj_manipulator.arms.ur5e import (
@@ -18,7 +20,6 @@ from mj_manipulator.arms.ur5e import (
     UR5E_JOINT_NAMES,
     create_ur5e_arm,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -29,6 +30,7 @@ from mj_manipulator.arms.ur5e import (
 def ur5e_env():
     try:
         from mj_manipulator.menagerie import menagerie_scene
+
         scene = menagerie_scene("universal_robots_ur5e")
     except FileNotFoundError:
         pytest.skip("mujoco_menagerie not found")
@@ -49,6 +51,7 @@ def ur5e_arm(ur5e_env):
 def franka_env():
     try:
         from mj_manipulator.menagerie import menagerie_scene
+
         franka_scene = menagerie_scene("franka_emika_panda")
     except FileNotFoundError:
         pytest.skip("mujoco_menagerie not found")
@@ -243,6 +246,7 @@ class TestAddFrankaEeSite:
         """add_franka_ee_site adds a site to the hand body."""
         try:
             from mj_manipulator.menagerie import menagerie_scene
+
             franka_scene = menagerie_scene("franka_emika_panda")
         except FileNotFoundError:
             pytest.skip("mujoco_menagerie not found")
@@ -260,6 +264,7 @@ class TestAddFrankaEeSite:
         """Custom position is applied to the site."""
         try:
             from mj_manipulator.menagerie import menagerie_scene
+
             franka_scene = menagerie_scene("franka_emika_panda")
         except FileNotFoundError:
             pytest.skip("mujoco_menagerie not found")

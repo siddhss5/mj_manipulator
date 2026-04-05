@@ -3,9 +3,12 @@ name = "mj-manipulator"
 version = "1.0.0"
 description = "Generic MuJoCo manipulator control: planning, execution, grasping, and cartesian control for any robot arm"
 readme = "README.md"
-license = {text = "BSD-3-Clause"}
+license = "MIT"
 authors = [
-    {name = "Siddhartha Srinivasa", email = "siddh@cs.washington.edu"}
+    {name = "Siddhartha Srinivasa", email = "siddhartha.srinivasa@gmail.com"},
+]
+maintainers = [
+    {name = "Siddhartha Srinivasa", email = "siddhartha.srinivasa@gmail.com"},
 ]
 requires-python = ">=3.10"
 dependencies = [
@@ -48,5 +51,17 @@ allow-direct-references = true
 [tool.hatch.build.targets.wheel]
 packages = ["src/mj_manipulator"]
 
+[project.urls]
+Homepage = "https://github.com/personalrobotics/mj_manipulator"
+Repository = "https://github.com/personalrobotics/mj_manipulator"
+Issues = "https://github.com/personalrobotics/mj_manipulator/issues"
+
 [tool.ruff]
-lint.select = ["F", "E", "W", "I"]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/mj_manipulator/__init__.py" = ["F401"]
+"src/mj_manipulator/**/__init__.py" = ["F401"]

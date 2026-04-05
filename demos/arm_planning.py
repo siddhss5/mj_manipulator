@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Motion planning demo with UR5e and Franka Panda.
 
 Demonstrates the Arm class's motion planning capabilities using arm factories:
@@ -10,12 +13,10 @@ Usage:
     uv run python demos/arm_planning.py
 """
 
-from pathlib import Path
-
 import mujoco
 import numpy as np
-
 from mj_environment import Environment
+
 from mj_manipulator.arms.franka import (
     FRANKA_HOME,
     add_franka_ee_site,
@@ -61,7 +62,7 @@ def demo_plan_to_config(arm, q_goal, label):
     fk_start = arm.forward_kinematics(path[0])
     fk_end = arm.forward_kinematics(path[-1])
     ee_dist = np.linalg.norm(fk_end[:3, 3] - fk_start[:3, 3])
-    print(f"  EE travel: {ee_dist*1000:.1f} mm")
+    print(f"  EE travel: {ee_dist * 1000:.1f} mm")
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +117,7 @@ def demo_plan_to_pose(arm, label):
     # Verify final waypoint FK
     fk_final = arm.forward_kinematics(path[-1])
     pos_err = np.linalg.norm(fk_final[:3, 3] - target_pose[:3, 3])
-    print(f"  Final FK error: {pos_err*1000:.3f} mm")
+    print(f"  Final FK error: {pos_err * 1000:.3f} mm")
 
 
 # ---------------------------------------------------------------------------
@@ -156,10 +157,7 @@ def main():
     demo_trajectory(franka, franka_goal, "Franka Panda")
     demo_plan_to_pose(franka, "Franka Panda")
 
-    print_header(
-        "DONE - Same planning API\n"
-        "  works with UR5e (6-DOF) and Franka Panda (7-DOF)"
-    )
+    print_header("DONE - Same planning API\n  works with UR5e (6-DOF) and Franka Panda (7-DOF)")
     print()
 
 

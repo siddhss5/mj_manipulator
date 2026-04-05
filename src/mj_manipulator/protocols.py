@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Protocols defining the contracts between mj_manipulator and robot-specific packages.
 
 Robot-specific packages (geodude, franka_control, xarm_control) implement
@@ -302,9 +305,7 @@ class IKSolver(Protocol):
     solver (analytical for UR5e/Franka, numerical for others).
     """
 
-    def solve(
-        self, pose: np.ndarray, q_init: np.ndarray | None = None
-    ) -> list[np.ndarray]:
+    def solve(self, pose: np.ndarray, q_init: np.ndarray | None = None) -> list[np.ndarray]:
         """Solve IK for a target pose (raw, may include invalid solutions).
 
         Args:
@@ -316,9 +317,7 @@ class IKSolver(Protocol):
         """
         ...
 
-    def solve_valid(
-        self, pose: np.ndarray, q_init: np.ndarray | None = None
-    ) -> list[np.ndarray]:
+    def solve_valid(self, pose: np.ndarray, q_init: np.ndarray | None = None) -> list[np.ndarray]:
         """Solve IK and return only collision-free, in-limits solutions.
 
         Args:

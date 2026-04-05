@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Utilities for locating the MuJoCo Menagerie robot model collection."""
 
 from __future__ import annotations

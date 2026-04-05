@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Behavior tree nodes and subtree builders for manipulation.
 
 Provides py_trees leaf nodes wrapping mj_manipulator operations, plus

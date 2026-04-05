@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Concrete gripper implementations for supported robots.
 
 Provides gripper classes that satisfy the Gripper protocol, with both

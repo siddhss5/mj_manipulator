@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """EAIK-based IK solver for MuJoCo manipulators.
 
 Extracts joint axes (H) and position offsets (P) directly from a MuJoCo model,
@@ -76,9 +79,7 @@ def _extract_hp(
         body_id = model.jnt_bodyid[jid]
         body_rot = tmp_data.xmat[body_id].reshape(3, 3)
         H_world[i] = body_rot @ model.jnt_axis[jid]
-        positions_world[i] = (
-            tmp_data.xpos[body_id] + body_rot @ model.jnt_pos[jid]
-        )
+        positions_world[i] = tmp_data.xpos[body_id] + body_rot @ model.jnt_pos[jid]
 
     positions_world[n_joints] = tmp_data.site_xpos[ee_site_id]
 
@@ -94,9 +95,7 @@ def _extract_hp(
     P_offsets = np.zeros((n_joints + 1, 3))
     P_offsets[0] = base_rot_inv @ (positions_world[0] - base_pos)
     for i in range(1, n_joints + 1):
-        P_offsets[i] = base_rot_inv @ (
-            positions_world[i] - positions_world[i - 1]
-        )
+        P_offsets[i] = base_rot_inv @ (positions_world[i] - positions_world[i - 1])
 
     return H_base, P_offsets, ee_rot_base
 
@@ -194,8 +193,12 @@ class MuJoCoEAIKSolver:
         # EAIK's FK at q=zeros gives identity rotation (all joint angles zero),
         # so this offset must be removed from IK targets before passing to EAIK.
         self._H, self._P, self._ee_rot_offset = _extract_hp(
-            model, data, joint_ids, joint_qpos_indices,
-            ee_site_id, base_body_id,
+            model,
+            data,
+            joint_ids,
+            joint_qpos_indices,
+            ee_site_id,
+            base_body_id,
         )
 
         if fixed_joint_index is None:
@@ -251,9 +254,7 @@ class MuJoCoEAIKSolver:
         T_world_base = self._get_base_pose()
         return np.linalg.inv(T_world_base) @ pose_world
 
-    def solve(
-        self, pose: np.ndarray, q_init: np.ndarray | None = None
-    ) -> list[np.ndarray]:
+    def solve(self, pose: np.ndarray, q_init: np.ndarray | None = None) -> list[np.ndarray]:
         """Solve IK for a world-frame target pose.
 
         For 6-DOF arms, solves analytically and returns all solutions.
@@ -282,17 +283,14 @@ class MuJoCoEAIKSolver:
                 result = self._robot.IK(T_eaik)
             except RuntimeError:
                 return []
-            return [
-                result.Q[i].copy()
-                for i in range(result.num_solutions())
-                if not result.is_LS[i]
-            ]
+            return [result.Q[i].copy() for i in range(result.num_solutions()) if not result.is_LS[i]]
 
         # 7-DOF: discretize locked joint
         all_solutions = []
         for theta in self._discretize_values:
             robot = self._HPRobot(
-                self._H, self._P,
+                self._H,
+                self._P,
                 fixed_axes=[(self._fixed_joint_index, theta)],
             )
             try:
@@ -304,15 +302,12 @@ class MuJoCoEAIKSolver:
                 # EAIK marks all fixed_axes solutions as LS, even exact ones.
                 # Verify by FK round-trip instead.
                 T_check = robot.fwdKin(q)
-                if (np.linalg.norm(T_check[:3, 3] - T_eaik[:3, 3])
-                        < self._FK_TOLERANCE):
+                if np.linalg.norm(T_check[:3, 3] - T_eaik[:3, 3]) < self._FK_TOLERANCE:
                     all_solutions.append(q)
 
         return all_solutions
 
-    def solve_valid(
-        self, pose: np.ndarray, q_init: np.ndarray | None = None
-    ) -> list[np.ndarray]:
+    def solve_valid(self, pose: np.ndarray, q_init: np.ndarray | None = None) -> list[np.ndarray]:
         """Solve IK and return only valid (in-limits) solutions.
 
         Args:
@@ -328,7 +323,4 @@ class MuJoCoEAIKSolver:
             return solutions
 
         lower, upper = self._joint_limits
-        return [
-            q for q in solutions
-            if np.all(q >= lower) and np.all(q <= upper)
-        ]
+        return [q for q in solutions if np.all(q >= lower) and np.all(q <= upper)]

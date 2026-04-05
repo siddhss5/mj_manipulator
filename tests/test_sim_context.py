@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Tests for SimContext and SimArmController.
 
 Uses shared test fixtures from conftest.py (MockArm, model_and_data).
@@ -6,19 +9,20 @@ Tests run headless (no viewer).
 
 import numpy as np
 import pytest
+from conftest import make_trajectory
 
 from mj_manipulator.config import PhysicsConfig, PhysicsExecutionConfig
 from mj_manipulator.protocols import ArmController, ExecutionContext
 from mj_manipulator.sim_context import SimArmController, SimContext
-
-from conftest import make_trajectory
 
 
 class TestSimContextLifecycle:
     def test_enter_exit_headless_physics(self, model_and_data, mock_arm):
         model, data = model_and_data
         ctx = SimContext(
-            model, data, {"test_arm": mock_arm},
+            model,
+            data,
+            {"test_arm": mock_arm},
             headless=True,
             physics_config=PhysicsConfig(
                 execution=PhysicsExecutionConfig(control_dt=0.002),
@@ -28,7 +32,8 @@ class TestSimContextLifecycle:
             assert c is ctx
             # Should be able to execute after entering
             traj = make_trajectory(
-                np.array([[0.0, 0.0]]), entity="test_arm",
+                np.array([[0.0, 0.0]]),
+                entity="test_arm",
             )
             result = c.execute(traj)
             assert result is True
@@ -40,13 +45,17 @@ class TestSimContextLifecycle:
     def test_enter_exit_headless_kinematic(self, model_and_data, mock_arm):
         model, data = model_and_data
         ctx = SimContext(
-            model, data, {"test_arm": mock_arm},
-            physics=False, headless=True,
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
         )
         with ctx as c:
             # Should be able to execute
             traj = make_trajectory(
-                np.array([[0.0, 0.0]]), entity="test_arm",
+                np.array([[0.0, 0.0]]),
+                entity="test_arm",
             )
             result = c.execute(traj)
             assert result is True
@@ -60,21 +69,29 @@ class TestSimContextProtocol:
     def test_satisfies_execution_context(self, model_and_data, mock_arm):
         model, data = model_and_data
         ctx = SimContext(
-            model, data, {"test_arm": mock_arm}, headless=True,
+            model,
+            data,
+            {"test_arm": mock_arm},
+            headless=True,
         )
         assert isinstance(ctx, ExecutionContext)
 
     def test_is_running_headless(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm}, headless=True,
+            model,
+            data,
+            {"test_arm": mock_arm},
+            headless=True,
         ) as ctx:
             assert ctx.is_running() is True
 
     def test_control_dt_physics(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
+            model,
+            data,
+            {"test_arm": mock_arm},
             headless=True,
             physics_config=PhysicsConfig(
                 execution=PhysicsExecutionConfig(control_dt=0.004),
@@ -85,8 +102,11 @@ class TestSimContextProtocol:
     def test_control_dt_kinematic(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
-            physics=False, headless=True,
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
         ) as ctx:
             assert ctx.control_dt == 0.004
 
@@ -95,7 +115,9 @@ class TestSimContextExecution:
     def test_execute_trajectory_physics(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
+            model,
+            data,
+            {"test_arm": mock_arm},
             headless=True,
             physics_config=PhysicsConfig(
                 execution=PhysicsExecutionConfig(
@@ -106,11 +128,13 @@ class TestSimContextExecution:
                 ),
             ),
         ) as ctx:
-            positions = np.array([
-                [0.0, 0.0],
-                [0.1, 0.1],
-                [0.2, 0.2],
-            ])
+            positions = np.array(
+                [
+                    [0.0, 0.0],
+                    [0.1, 0.1],
+                    [0.2, 0.2],
+                ]
+            )
             traj = make_trajectory(positions, entity="test_arm")
             result = ctx.execute(traj)
             assert result is True
@@ -118,14 +142,19 @@ class TestSimContextExecution:
     def test_execute_trajectory_kinematic(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
-            physics=False, headless=True,
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
         ) as ctx:
-            positions = np.array([
-                [0.0, 0.0],
-                [0.1, 0.1],
-                [0.3, 0.3],
-            ])
+            positions = np.array(
+                [
+                    [0.0, 0.0],
+                    [0.1, 0.1],
+                    [0.3, 0.3],
+                ]
+            )
             traj = make_trajectory(positions, entity="test_arm")
             result = ctx.execute(traj)
             assert result is True
@@ -137,11 +166,15 @@ class TestSimContextExecution:
     def test_execute_no_entity_raises(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
-            physics=False, headless=True,
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
         ) as ctx:
             traj = make_trajectory(
-                np.array([[0.0, 0.0]]), entity=None,
+                np.array([[0.0, 0.0]]),
+                entity=None,
             )
             with pytest.raises(ValueError, match="no entity"):
                 ctx.execute(traj)
@@ -149,11 +182,15 @@ class TestSimContextExecution:
     def test_execute_unknown_entity_raises(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
-            physics=False, headless=True,
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
         ) as ctx:
             traj = make_trajectory(
-                np.array([[0.0, 0.0]]), entity="unknown",
+                np.array([[0.0, 0.0]]),
+                entity="unknown",
             )
             with pytest.raises(ValueError, match="No executor"):
                 ctx.execute(traj)
@@ -163,7 +200,9 @@ class TestSimContextStep:
     def test_step_physics_with_targets(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
+            model,
+            data,
+            {"test_arm": mock_arm},
             headless=True,
             physics_config=PhysicsConfig(
                 execution=PhysicsExecutionConfig(control_dt=0.002),
@@ -176,7 +215,9 @@ class TestSimContextStep:
     def test_step_physics_no_targets(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
+            model,
+            data,
+            {"test_arm": mock_arm},
             headless=True,
             physics_config=PhysicsConfig(
                 execution=PhysicsExecutionConfig(control_dt=0.002),
@@ -188,8 +229,11 @@ class TestSimContextStep:
     def test_step_kinematic_with_targets(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
-            physics=False, headless=True,
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
         ) as ctx:
             ctx.step({"test_arm": np.array([0.7, -0.3])})
             # Kinematic: qpos should match target exactly
@@ -200,8 +244,11 @@ class TestSimContextStep:
     def test_step_kinematic_no_targets(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
-            physics=False, headless=True,
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
         ) as ctx:
             # Should not raise
             ctx.step()
@@ -209,7 +256,9 @@ class TestSimContextStep:
     def test_step_cartesian_physics(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
+            model,
+            data,
+            {"test_arm": mock_arm},
             headless=True,
             physics_config=PhysicsConfig(
                 execution=PhysicsExecutionConfig(control_dt=0.002),
@@ -222,8 +271,11 @@ class TestSimContextStep:
     def test_step_cartesian_kinematic(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
-            physics=False, headless=True,
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
         ) as ctx:
             ctx.step_cartesian("test_arm", np.array([0.4, -0.4]))
             # Kinematic: position should be set
@@ -236,8 +288,11 @@ class TestSimContextArmController:
     def test_arm_returns_controller(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
-            physics=False, headless=True,
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
         ) as ctx:
             arm_ctrl = ctx.arm("test_arm")
             assert isinstance(arm_ctrl, SimArmController)
@@ -245,8 +300,11 @@ class TestSimContextArmController:
     def test_arm_satisfies_protocol(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
-            physics=False, headless=True,
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
         ) as ctx:
             arm_ctrl = ctx.arm("test_arm")
             assert isinstance(arm_ctrl, ArmController)
@@ -254,8 +312,11 @@ class TestSimContextArmController:
     def test_arm_cached(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
-            physics=False, headless=True,
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
         ) as ctx:
             ctrl1 = ctx.arm("test_arm")
             ctrl2 = ctx.arm("test_arm")
@@ -264,8 +325,11 @@ class TestSimContextArmController:
     def test_arm_unknown_raises(self, model_and_data, mock_arm):
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
-            physics=False, headless=True,
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
         ) as ctx:
             with pytest.raises(ValueError, match="Unknown arm"):
                 ctx.arm("nonexistent")
@@ -274,8 +338,11 @@ class TestSimContextArmController:
         """Grasp returns None when arm has no gripper."""
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
-            physics=False, headless=True,
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
         ) as ctx:
             result = ctx.arm("test_arm").grasp("some_object")
             assert result is None
@@ -284,8 +351,11 @@ class TestSimContextArmController:
         """Release is a no-op when arm has no gripper."""
         model, data = model_and_data
         with SimContext(
-            model, data, {"test_arm": mock_arm},
-            physics=False, headless=True,
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
         ) as ctx:
             # Should not raise
             ctx.arm("test_arm").release("some_object")

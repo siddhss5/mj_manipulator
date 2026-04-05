@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Tests for trajectory representation and retiming."""
 
 import numpy as np
@@ -136,9 +139,7 @@ class TestFromPath:
     def test_duplicate_waypoints_filtered(self):
         """Consecutive duplicate waypoints are filtered out."""
         path = [np.array([0.0, 0.0]), np.array([0.0, 0.0]), np.array([1.0, 1.0])]
-        traj = Trajectory.from_path(
-            path, np.array([2.0, 2.0]), np.array([4.0, 4.0])
-        )
+        traj = Trajectory.from_path(path, np.array([2.0, 2.0]), np.array([4.0, 4.0]))
         assert traj.duration > 0
 
 
@@ -173,8 +174,6 @@ class TestLinearTrajectory:
 
     def test_entity_metadata(self):
         """Entity metadata is passed through."""
-        traj = create_linear_trajectory(
-            0.0, 0.5, 0.1, 0.2, entity="left_base", joint_names=["base_joint"]
-        )
+        traj = create_linear_trajectory(0.0, 0.5, 0.1, 0.2, entity="left_base", joint_names=["base_joint"])
         assert traj.entity == "left_base"
         assert traj.joint_names == ["base_joint"]

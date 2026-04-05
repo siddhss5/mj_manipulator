@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Shared base class for gripper implementations.
 
 Not part of the public API. Subclass _BaseGripper to implement a concrete
@@ -9,7 +12,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import mujoco
-import numpy as np
 
 from mj_manipulator.contacts import iter_contacts
 
@@ -51,12 +53,12 @@ class _BaseGripper:
         # Resolve actuator ID
         if actuator_name:
             self._actuator_id: int | None = mujoco.mj_name2id(
-                model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_name,
+                model,
+                mujoco.mjtObj.mjOBJ_ACTUATOR,
+                actuator_name,
             )
             if self._actuator_id == -1:
-                raise ValueError(
-                    f"Actuator '{actuator_name}' not found in model"
-                )
+                raise ValueError(f"Actuator '{actuator_name}' not found in model")
         else:
             self._actuator_id = None
 
@@ -150,8 +152,7 @@ class _BaseGripper:
 
             if external_body:
                 # Only stop for candidate objects (ignore incidental contacts)
-                if (self._candidate_objects is None
-                        or external_body in self._candidate_objects):
+                if self._candidate_objects is None or external_body in self._candidate_objects:
                     grasped = external_body
                     break
 
@@ -196,4 +197,3 @@ class _BaseGripper:
                     first_external = name
 
         return self_contact, candidate_body or first_external
-

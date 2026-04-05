@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Ready-to-use arm definitions for supported robots.
 
 Provides factory functions that create fully configured Arm instances

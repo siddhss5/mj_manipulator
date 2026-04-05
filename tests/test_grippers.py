@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Tests for gripper implementations (RobotiqGripper, FrankaGripper).
 
 Uses real menagerie/geodude_assets robot models to verify:
@@ -10,9 +13,7 @@ Uses real menagerie/geodude_assets robot models to verify:
 
 import geodude_assets
 import mujoco
-import numpy as np
 import pytest
-
 from mj_environment import Environment
 
 from mj_manipulator.grasp_manager import GraspManager
@@ -41,7 +42,9 @@ def robotiq_env():
 @pytest.fixture
 def robotiq_gripper(robotiq_env):
     return RobotiqGripper(
-        robotiq_env.model, robotiq_env.data, "test_arm",
+        robotiq_env.model,
+        robotiq_env.data,
+        "test_arm",
     )
 
 
@@ -49,6 +52,7 @@ def robotiq_gripper(robotiq_env):
 def franka_env():
     try:
         from mj_manipulator.menagerie import menagerie_scene
+
         franka_scene = menagerie_scene("franka_emika_panda")
     except FileNotFoundError:
         pytest.skip("mujoco_menagerie not found")
@@ -71,7 +75,9 @@ def franka_env():
 @pytest.fixture
 def franka_gripper(franka_env):
     return FrankaGripper(
-        franka_env.model, franka_env.data, "franka",
+        franka_env.model,
+        franka_env.data,
+        "franka",
     )
 
 
@@ -115,7 +121,9 @@ class TestRobotiqGripperConstruction:
     def test_invalid_actuator_raises(self, robotiq_env):
         with pytest.raises(ValueError, match="not found"):
             RobotiqGripper(
-                robotiq_env.model, robotiq_env.data, "arm",
+                robotiq_env.model,
+                robotiq_env.data,
+                "arm",
                 prefix="nonexistent/",
             )
 
@@ -156,7 +164,9 @@ class TestRobotiqGripperGraspManager:
     def test_is_holding_with_grasp_manager(self, robotiq_env):
         gm = GraspManager(robotiq_env.model, robotiq_env.data)
         gripper = RobotiqGripper(
-            robotiq_env.model, robotiq_env.data, "arm",
+            robotiq_env.model,
+            robotiq_env.data,
+            "arm",
             grasp_manager=gm,
         )
         assert not gripper.is_holding
@@ -210,7 +220,9 @@ class TestFrankaGripperConstruction:
     def test_invalid_actuator_raises(self, franka_env):
         with pytest.raises(ValueError, match="not found"):
             FrankaGripper(
-                franka_env.model, franka_env.data, "franka",
+                franka_env.model,
+                franka_env.data,
+                "franka",
                 prefix="nonexistent/",
             )
 
@@ -252,7 +264,9 @@ class TestFrankaGripperGraspManager:
     def test_is_holding_with_grasp_manager(self, franka_env):
         gm = GraspManager(franka_env.model, franka_env.data)
         gripper = FrankaGripper(
-            franka_env.model, franka_env.data, "franka",
+            franka_env.model,
+            franka_env.data,
+            "franka",
             grasp_manager=gm,
         )
         assert not gripper.is_holding
@@ -277,7 +291,9 @@ class TestArmFactoryIntegration:
         # so we can't test with the menagerie UR5e scene.
         # Just verify the RobotiqGripper constructs correctly with its own model.
         gripper = RobotiqGripper(
-            robotiq_env.model, robotiq_env.data, "ur5e",
+            robotiq_env.model,
+            robotiq_env.data,
+            "ur5e",
         )
         assert isinstance(gripper, Gripper)
         assert gripper.arm_name == "ur5e"
@@ -288,11 +304,15 @@ class TestArmFactoryIntegration:
 
         gm = GraspManager(franka_env.model, franka_env.data)
         gripper = FrankaGripper(
-            franka_env.model, franka_env.data, "franka",
+            franka_env.model,
+            franka_env.data,
+            "franka",
             grasp_manager=gm,
         )
         arm = create_franka_arm(
-            franka_env, gripper=gripper, grasp_manager=gm,
+            franka_env,
+            gripper=gripper,
+            grasp_manager=gm,
         )
         assert arm.gripper is gripper
         assert arm.grasp_manager is gm

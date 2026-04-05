@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Recycling demo using behavior trees.
 
 Same task as recycling.py (pick up cans, drop in bin), but orchestrated
@@ -14,16 +17,14 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
-from pathlib import Path
 
 import mujoco
 import numpy as np
 import py_trees
 from asset_manager import AssetManager
 from mj_environment import Environment
-from py_trees.common import Access, Status
 from prl_assets import OBJECTS_DIR
+from py_trees.common import Access, Status
 from tsr import TSR
 from tsr.hands import FrankaHand, Robotiq2F140
 from tsr.placement import StablePlacer
@@ -50,7 +51,7 @@ logger = logging.getLogger(__name__)
 # Scene + geometry (same as recycling.py)
 # ---------------------------------------------------------------------------
 
-import geodude_assets
+import geodude_assets  # noqa: E402
 
 UR5E_SCENE = menagerie_scene("universal_robots_ur5e")
 FRANKA_SCENE = menagerie_scene("franka_emika_panda")
@@ -174,12 +175,15 @@ def make_grasp_tsrs(T_center, robot_type):
 
 
 def make_place_tsrs():
-    place_pose = np.array([
-        [1, 0, 0, BIN_POS[0]],
-        [0, -1, 0, BIN_POS[1]],
-        [0, 0, -1, BIN_POS[2] + _BIN_HEIGHT + 0.15],
-        [0, 0, 0, 1],
-    ], dtype=float)
+    place_pose = np.array(
+        [
+            [1, 0, 0, BIN_POS[0]],
+            [0, -1, 0, BIN_POS[1]],
+            [0, 0, -1, BIN_POS[2] + _BIN_HEIGHT + 0.15],
+            [0, 0, 0, 1],
+        ],
+        dtype=float,
+    )
     return [TSR(T0_w=place_pose)]
 
 
@@ -189,31 +193,42 @@ def make_place_tsrs():
 
 
 def run(robot_type, *, physics=False, headless=False, cycles=3):
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  BT Recycling Demo — {robot_type.upper()}")
     print(f"  Mode: {'Physics' if physics else 'Kinematic'}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     env, arm, home = setup_scene(robot_type)
     ns = f"/{arm.config.name}"
 
     # Build tree
     root = py_trees.composites.Sequence(
-        name="recycle_cycle", memory=True,
+        name="recycle_cycle",
+        memory=True,
         children=[pickup_with_recovery(ns), place_with_recovery(ns)],
     )
     tree = py_trees.trees.BehaviourTree(root=root)
 
-    physics_config = PhysicsConfig(
-        execution=PhysicsExecutionConfig(
-            control_dt=0.008, position_tolerance=0.15,
-            velocity_tolerance=0.5, convergence_timeout_steps=5000,
-        ),
-    ) if physics else None
+    physics_config = (
+        PhysicsConfig(
+            execution=PhysicsExecutionConfig(
+                control_dt=0.008,
+                position_tolerance=0.15,
+                velocity_tolerance=0.5,
+                convergence_timeout_steps=5000,
+            ),
+        )
+        if physics
+        else None
+    )
 
     with SimContext(
-        env.model, env.data, {arm.config.name: arm},
-        physics=physics, headless=headless, physics_config=physics_config,
+        env.model,
+        env.data,
+        {arm.config.name: arm},
+        physics=physics,
+        headless=headless,
+        physics_config=physics_config,
     ) as ctx:
         if robot_type == "franka" and arm.gripper is not None:
             arm.gripper.kinematic_open()
@@ -223,10 +238,19 @@ def run(robot_type, *, physics=False, headless=False, cycles=3):
 
         # Set up blackboard
         bb = py_trees.blackboard.Client(name="demo")
-        for key in ["/context", f"{ns}/arm", f"{ns}/arm_name",
-                     f"{ns}/grasp_tsrs", f"{ns}/place_tsrs", f"{ns}/grasped",
-                     f"{ns}/goal_tsr_index", f"{ns}/tsr_to_object",
-                     f"{ns}/timeout", f"{ns}/object_name", f"{ns}/goal_config"]:
+        for key in [
+            "/context",
+            f"{ns}/arm",
+            f"{ns}/arm_name",
+            f"{ns}/grasp_tsrs",
+            f"{ns}/place_tsrs",
+            f"{ns}/grasped",
+            f"{ns}/goal_tsr_index",
+            f"{ns}/tsr_to_object",
+            f"{ns}/timeout",
+            f"{ns}/object_name",
+            f"{ns}/goal_config",
+        ]:
             bb.register_key(key=key, access=Access.WRITE)
 
         bb.set("/context", ctx)
@@ -288,7 +312,7 @@ def run(robot_type, *, physics=False, headless=False, cycles=3):
                 if home_path is not None:
                     ctx.execute(arm.retime(home_path))
             else:
-                print(f"  FAILED (recovery attempted)")
+                print("  FAILED (recovery attempted)")
 
             ctx.sync()
 
@@ -307,9 +331,9 @@ def main():
     for robot in robots:
         run(robot, physics=args.physics, headless=args.headless, cycles=args.cycles)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("  DONE")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
 
 if __name__ == "__main__":

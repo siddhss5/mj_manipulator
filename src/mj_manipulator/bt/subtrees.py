@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Pre-built subtree patterns for common manipulation tasks.
 
 Each function returns a py_trees composite that can be used standalone
@@ -124,7 +127,8 @@ def recover(ns: str) -> py_trees.composites.Sequence:
         children=[
             Release(ns=ns),
             py_trees.decorators.FailureIsSuccess(
-                name="optional_retract", child=guarded_retract,
+                name="optional_retract",
+                child=guarded_retract,
             ),
             PlanToConfig(ns=ns),
             Retime(ns=ns),
@@ -147,7 +151,8 @@ def pickup_with_recovery(ns: str) -> py_trees.composites.Selector:
         children=[
             pickup(ns),
             py_trees.decorators.SuccessIsFailure(
-                name="recover_then_fail", child=recover(ns),
+                name="recover_then_fail",
+                child=recover(ns),
             ),
         ],
     )
@@ -188,7 +193,8 @@ def recover_keep_grasp(ns: str) -> py_trees.composites.Sequence:
         memory=True,
         children=[
             py_trees.decorators.FailureIsSuccess(
-                name="optional_retract", child=guarded_retract,
+                name="optional_retract",
+                child=guarded_retract,
             ),
             PlanToConfig(ns=ns),
             Retime(ns=ns),
@@ -228,7 +234,8 @@ def place_with_recovery(ns: str) -> py_trees.composites.Selector:
         children=[
             place(ns),
             py_trees.decorators.SuccessIsFailure(
-                name="recover_then_fail", child=recover_keep_grasp(ns),
+                name="recover_then_fail",
+                child=recover_keep_grasp(ns),
             ),
         ],
     )

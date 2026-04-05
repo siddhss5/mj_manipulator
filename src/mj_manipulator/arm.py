@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Generic robot arm abstraction for MuJoCo manipulators.
 
 Wraps an Environment + ArmConfig to provide:
@@ -17,7 +20,6 @@ from typing import TYPE_CHECKING
 
 import mujoco
 import numpy as np
-
 from pycbirrt import CBiRRT, CBiRRTConfig
 from tsr import TSR
 
@@ -97,9 +99,7 @@ class ContextRobotModel:
         for i, idx in enumerate(self._joint_qpos_indices):
             self._data.qpos[idx] = q[i]
         mujoco.mj_forward(self._model, self._data)
-        return _read_site_pose(
-            self._data, self._ee_site_id, self._tcp_offset
-        )
+        return _read_site_pose(self._data, self._ee_site_id, self._tcp_offset)
 
 
 # =============================================================================
@@ -189,13 +189,9 @@ class Arm:
         # Resolve EE site
         self.ee_site_id: int
         if config.ee_site:
-            self.ee_site_id = mujoco.mj_name2id(
-                model, mujoco.mjtObj.mjOBJ_SITE, config.ee_site
-            )
+            self.ee_site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, config.ee_site)
             if self.ee_site_id == -1:
-                raise ValueError(
-                    f"EE site '{config.ee_site}' not found in model"
-                )
+                raise ValueError(f"EE site '{config.ee_site}' not found in model")
         else:
             self.ee_site_id = -1
 
@@ -206,9 +202,7 @@ class Arm:
         joint_id_set = set(self.joint_ids)
         for act_id in range(model.nu):
             trntype = model.actuator_trntype[act_id]
-            if trntype == mujoco.mjtTrn.mjTRN_JOINT and (
-                model.actuator_trnid[act_id, 0] in joint_id_set
-            ):
+            if trntype == mujoco.mjtTrn.mjTRN_JOINT and (model.actuator_trnid[act_id, 0] in joint_id_set):
                 self.actuator_ids.append(act_id)
 
         # Cache DOF and joint limits
@@ -221,22 +215,22 @@ class Arm:
         self.ft_site_id: int | None = None
         if config.ft_force_sensor:
             sid = mujoco.mj_name2id(
-                model, mujoco.mjtObj.mjOBJ_SENSOR, config.ft_force_sensor,
+                model,
+                mujoco.mjtObj.mjOBJ_SENSOR,
+                config.ft_force_sensor,
             )
             if sid == -1:
-                raise ValueError(
-                    f"Force sensor '{config.ft_force_sensor}' not found"
-                )
+                raise ValueError(f"Force sensor '{config.ft_force_sensor}' not found")
             self._ft_force_adr = model.sensor_adr[sid]
             self.ft_site_id = model.sensor_objid[sid]
         if config.ft_torque_sensor:
             sid = mujoco.mj_name2id(
-                model, mujoco.mjtObj.mjOBJ_SENSOR, config.ft_torque_sensor,
+                model,
+                mujoco.mjtObj.mjOBJ_SENSOR,
+                config.ft_torque_sensor,
             )
             if sid == -1:
-                raise ValueError(
-                    f"Torque sensor '{config.ft_torque_sensor}' not found"
-                )
+                raise ValueError(f"Torque sensor '{config.ft_torque_sensor}' not found")
             self._ft_torque_adr = model.sensor_adr[sid]
 
     # -----------------------------------------------------------------
@@ -245,9 +239,7 @@ class Arm:
 
     def get_joint_positions(self) -> np.ndarray:
         """Current joint positions (rad)."""
-        return np.array([
-            self.env.data.qpos[idx] for idx in self.joint_qpos_indices
-        ])
+        return np.array([self.env.data.qpos[idx] for idx in self.joint_qpos_indices])
 
     def set_joint_positions(self, q: np.ndarray, ctx=None) -> None:
         """Set joint positions directly, sync viewer.
@@ -265,10 +257,7 @@ class Arm:
         lower, upper = self.get_joint_limits()
         for i in range(self.dof):
             if q[i] < lower[i] or q[i] > upper[i]:
-                raise ValueError(
-                    f"Joint {i} value {q[i]:.3f} outside limits "
-                    f"[{lower[i]:.3f}, {upper[i]:.3f}]"
-                )
+                raise ValueError(f"Joint {i} value {q[i]:.3f} outside limits [{lower[i]:.3f}, {upper[i]:.3f}]")
         for i, idx in enumerate(self.joint_qpos_indices):
             self.env.data.qpos[idx] = q[i]
         for idx in self.joint_qvel_indices:
@@ -279,9 +268,7 @@ class Arm:
 
     def get_joint_velocities(self) -> np.ndarray:
         """Current joint velocities (rad/s)."""
-        return np.array([
-            self.env.data.qvel[idx] for idx in self.joint_qvel_indices
-        ])
+        return np.array([self.env.data.qvel[idx] for idx in self.joint_qvel_indices])
 
     def get_ft_wrench(self) -> np.ndarray:
         """Current wrist force/torque reading as [fx, fy, fz, tx, ty, tz].
@@ -311,15 +298,12 @@ class Arm:
             RuntimeError: If no F/T sensor is configured.
         """
         if self._ft_force_adr is None or self._ft_torque_adr is None:
-            raise RuntimeError(
-                "No F/T sensor configured. Set ft_force_sensor and "
-                "ft_torque_sensor in ArmConfig."
-            )
+            raise RuntimeError("No F/T sensor configured. Set ft_force_sensor and ft_torque_sensor in ArmConfig.")
         if not self.ft_valid:
             return np.full(6, np.nan)
         data = self.env.data
-        force = data.sensordata[self._ft_force_adr:self._ft_force_adr + 3]
-        torque = data.sensordata[self._ft_torque_adr:self._ft_torque_adr + 3]
+        force = data.sensordata[self._ft_force_adr : self._ft_force_adr + 3]
+        torque = data.sensordata[self._ft_torque_adr : self._ft_torque_adr + 3]
         return np.concatenate([force, torque]) - self._ft_tare_offset
 
     def get_ft_wrench_world(self) -> np.ndarray:
@@ -354,8 +338,8 @@ class Arm:
         if not self.ft_valid:
             raise RuntimeError("F/T not valid (kinematic mode). Use physics mode to tare.")
         data = self.env.data
-        force = data.sensordata[self._ft_force_adr:self._ft_force_adr + 3]
-        torque = data.sensordata[self._ft_torque_adr:self._ft_torque_adr + 3]
+        force = data.sensordata[self._ft_force_adr : self._ft_force_adr + 3]
+        torque = data.sensordata[self._ft_torque_adr : self._ft_torque_adr + 3]
         self._ft_tare_offset = np.concatenate([force, torque]).copy()
 
     @property
@@ -372,9 +356,7 @@ class Arm:
         if self.ee_site_id == -1:
             raise RuntimeError("No ee_site configured")
         mujoco.mj_forward(self.env.model, self.env.data)
-        return _read_site_pose(
-            self.env.data, self.ee_site_id, self.config.tcp_offset
-        )
+        return _read_site_pose(self.env.data, self.ee_site_id, self.config.tcp_offset)
 
     def get_joint_limits(self) -> tuple[np.ndarray, np.ndarray]:
         """Joint position limits as (lower, upper) arrays."""
@@ -488,12 +470,10 @@ class Arm:
         if self.grasp_manager is not None:
             arm_name = self.config.name
             grasped_objects = frozenset(
-                (obj, arm) for obj, arm in self.grasp_manager.grasped.items()
-                if arm == arm_name
+                (obj, arm) for obj, arm in self.grasp_manager.grasped.items() if arm == arm_name
             )
             attachments = {
-                obj: att for obj, att in self.grasp_manager._attachments.items()
-                if obj in dict(grasped_objects)
+                obj: att for obj, att in self.grasp_manager._attachments.items() if obj in dict(grasped_objects)
             }
             collision_checker = CollisionChecker(
                 model=model,
@@ -648,10 +628,7 @@ class Arm:
             If return_details=True, returns pycbirrt.PlanResult instead.
         """
         if self.ik_solver is None:
-            raise RuntimeError(
-                "plan_to_tsrs requires an IK solver. "
-                "Pass ik_solver= to the Arm constructor."
-            )
+            raise RuntimeError("plan_to_tsrs requires an IK solver. Pass ik_solver= to the Arm constructor.")
         config = self._make_planner_config(timeout, planner_config, abort_fn=abort_fn)
         planner = self.create_planner(config)
         result = planner.plan(
@@ -665,7 +642,8 @@ class Arm:
             if result is not None and result.success:
                 logger.info(
                     "Plan to TSRs succeeded: %d waypoints in %.1fs",
-                    len(result.path), result.planning_time,
+                    len(result.path),
+                    result.planning_time,
                 )
             elif result is not None:
                 logger.info("Plan to TSRs failed: %s", result.failure_reason or "unknown")
@@ -782,12 +760,8 @@ class _NoIKSolver:
     still works; only pose/TSR-based planning requires real IK.
     """
 
-    def solve(
-        self, pose: np.ndarray, q_init: np.ndarray | None = None
-    ) -> list[np.ndarray]:
+    def solve(self, pose: np.ndarray, q_init: np.ndarray | None = None) -> list[np.ndarray]:
         return []
 
-    def solve_valid(
-        self, pose: np.ndarray, q_init: np.ndarray | None = None
-    ) -> list[np.ndarray]:
+    def solve_valid(self, pose: np.ndarray, q_init: np.ndarray | None = None) -> list[np.ndarray]:
         return self.solve(pose, q_init)

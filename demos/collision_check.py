@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Collision checking demo with UR5e and Franka Panda.
 
 Demonstrates that the same CollisionChecker works with both 6-DOF and
@@ -34,19 +37,19 @@ FRANKA_SCENE = menagerie_scene("franka_emika_panda")
 # Test configurations
 # ---------------------------------------------------------------------------
 UR5E_CONFIGS = {
-    "home":        UR5E_HOME.copy(),
-    "zeros":       np.zeros(6),
+    "home": UR5E_HOME.copy(),
+    "zeros": np.zeros(6),
     "reach_front": np.array([0.0, -1.2, 1.0, -1.0, -1.5708, 0.0]),
-    "reach_down":  np.array([0.0, 0.5, 0.0, 0.0, 0.0, 0.0]),
-    "folded":      np.array([0.0, 1.5, -2.0, 0.0, 0.0, 0.0]),
+    "reach_down": np.array([0.0, 0.5, 0.0, 0.0, 0.0, 0.0]),
+    "folded": np.array([0.0, 1.5, -2.0, 0.0, 0.0, 0.0]),
 }
 
 FRANKA_CONFIGS = {
-    "home":        FRANKA_HOME.copy(),
-    "zeros":       np.zeros(7),
+    "home": FRANKA_HOME.copy(),
+    "zeros": np.zeros(7),
     "reach_front": np.array([0.0, -0.3, 0.0, -2.0, 0.0, 1.7, -0.7]),
     "reach_right": np.array([1.5, 0.0, 0.0, -1.5, 0.0, 1.5, 0.0]),
-    "tucked":      np.array([0.0, -0.5, 0.0, -2.5, 0.0, 2.0, 0.0]),
+    "tucked": np.array([0.0, -0.5, 0.0, -2.5, 0.0, 2.0, 0.0]),
 }
 
 
@@ -107,14 +110,11 @@ def demo_simple(
 
     cc = CollisionChecker(model, data, joint_names)
 
-    arm_names = sorted(
-        mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i)
-        for i in cc._arm_body_ids
-    )
+    arm_names = sorted(mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, i) for i in cc._arm_body_ids)
     print(f"\n  Arm bodies ({len(arm_names)}): {arm_names}")
 
     print(f"\n  {'Config':<15s}  {'Result':<12s}  {'Details'}")
-    print(f"  {'-'*15}  {'-'*12}  {'-'*30}")
+    print(f"  {'-' * 15}  {'-' * 12}  {'-' * 30}")
     for name, q in configs.items():
         valid = cc.is_valid(q)
         status = "VALID" if valid else "COLLISION"
@@ -150,16 +150,12 @@ def demo_grasp_aware(
     mujoco.mj_forward(model, data)
 
     # Move mug to the attachment body position (simulating a grasp)
-    attach_id = mujoco.mj_name2id(
-        model, mujoco.mjtObj.mjOBJ_BODY, attach_body
-    )
+    attach_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, attach_body)
     attach_pos = data.xpos[attach_id].copy()
     attach_mat = data.xmat[attach_id].reshape(3, 3)
     mug_pos = attach_pos + attach_mat @ np.array([0, 0, 0.08])
 
-    mug_body_id = mujoco.mj_name2id(
-        model, mujoco.mjtObj.mjOBJ_BODY, "mug"
-    )
+    mug_body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, "mug")
     mug_jnt = model.body_jntadr[mug_body_id]
     mug_qadr = model.jnt_qposadr[mug_jnt]
     data.qpos[mug_qadr : mug_qadr + 3] = mug_pos
@@ -212,10 +208,7 @@ def main() -> None:
         label="Franka Panda",
     )
 
-    print_header(
-        "DONE - Same CollisionChecker + GraspManager code\n"
-        "  works with UR5e (6-DOF) and Franka Panda (7-DOF)"
-    )
+    print_header("DONE - Same CollisionChecker + GraspManager code\n  works with UR5e (6-DOF) and Franka Panda (7-DOF)")
     print()
 
 

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Tests for Cartesian velocity control.
 
 Tests the QP solver, Jacobian computation, step_twist, and contact detection
@@ -138,7 +141,8 @@ class TestTwistToJointVelocity:
 
         twist = np.array([0.1, 0.0, 0.0, 0.0, 0.0, 0.0])
         result = twist_to_joint_velocity(
-            J=J, twist=twist,
+            J=J,
+            twist=twist,
             q_current=np.zeros(2),
             q_min=-np.ones(2) * 3,
             q_max=np.ones(2) * 3,
@@ -154,7 +158,8 @@ class TestTwistToJointVelocity:
         J = np.eye(6, 2)
         twist = np.array([100.0, 0, 0, 0, 0, 0])  # Very large twist
         result = twist_to_joint_velocity(
-            J=J, twist=twist,
+            J=J,
+            twist=twist,
             q_current=np.zeros(2),
             q_min=-np.ones(2) * 3,
             q_max=np.ones(2) * 3,
@@ -171,7 +176,8 @@ class TestTwistToJointVelocity:
         # Joint 0 is very close to upper limit
         twist = np.array([1.0, 0, 0, 0, 0, 0])
         result = twist_to_joint_velocity(
-            J=J, twist=twist,
+            J=J,
+            twist=twist,
             q_current=np.array([2.9, 0.0]),
             q_min=-np.ones(2) * 3,
             q_max=np.ones(2) * 3,
@@ -187,7 +193,8 @@ class TestTwistToJointVelocity:
         J = np.eye(6, 2)
         twist = np.array([0.1, 0, 0, 0, 0, 0])
         kwargs = dict(
-            J=J, twist=twist,
+            J=J,
+            twist=twist,
             q_current=np.zeros(2),
             q_min=-np.ones(2) * 3,
             q_max=np.ones(2) * 3,
@@ -197,14 +204,13 @@ class TestTwistToJointVelocity:
         r1 = twist_to_joint_velocity(**kwargs)
         r2 = twist_to_joint_velocity(**kwargs, q_dot_prev=r1.joint_velocities)
         # Warm start should give same result
-        np.testing.assert_allclose(
-            r1.joint_velocities, r2.joint_velocities, atol=1e-6
-        )
+        np.testing.assert_allclose(r1.joint_velocities, r2.joint_velocities, atol=1e-6)
 
     def test_result_type(self):
         J = np.eye(6, 2)
         result = twist_to_joint_velocity(
-            J=J, twist=np.zeros(6),
+            J=J,
+            twist=np.zeros(6),
             q_current=np.zeros(2),
             q_min=-np.ones(2) * 3,
             q_max=np.ones(2) * 3,
@@ -223,7 +229,11 @@ class TestStepTwist:
         qpos_idx, qvel_idx, ee_id = arm_indices
 
         q_new, result = step_twist(
-            model, data, ee_id, qpos_idx, qvel_idx,
+            model,
+            data,
+            ee_id,
+            qpos_idx,
+            qvel_idx,
             q_min=-np.ones(2) * 3,
             q_max=np.ones(2) * 3,
             qd_max=np.ones(2) * 2,
@@ -239,7 +249,11 @@ class TestStepTwist:
         q_before = np.array([data.qpos[i] for i in qpos_idx])
 
         q_new, result = step_twist(
-            model, data, ee_id, qpos_idx, qvel_idx,
+            model,
+            data,
+            ee_id,
+            qpos_idx,
+            qvel_idx,
             q_min=-np.ones(2) * 3,
             q_max=np.ones(2) * 3,
             qd_max=np.ones(2) * 2,
@@ -254,7 +268,11 @@ class TestStepTwist:
 
         # Should not crash with hand frame
         q_new, result = step_twist(
-            model, data, ee_id, qpos_idx, qvel_idx,
+            model,
+            data,
+            ee_id,
+            qpos_idx,
+            qvel_idx,
             q_min=-np.ones(2) * 3,
             q_max=np.ones(2) * 3,
             qd_max=np.ones(2) * 2,
@@ -295,22 +313,16 @@ class TestContactDetection:
         arm_ids = get_arm_body_ids(model, JOINT_NAMES)
 
         # Moving to home should be safe
-        result = check_arm_contact_after_move(
-            model, data, arm_ids, qpos_idx, np.zeros(2)
-        )
+        result = check_arm_contact_after_move(model, data, arm_ids, qpos_idx, np.zeros(2))
         assert result is None
 
-    def test_check_arm_contact_after_move_restores_state(
-        self, model_and_data, arm_indices
-    ):
+    def test_check_arm_contact_after_move_restores_state(self, model_and_data, arm_indices):
         model, data = model_and_data
         qpos_idx, _, _ = arm_indices
         arm_ids = get_arm_body_ids(model, JOINT_NAMES)
 
         q_before = np.array([data.qpos[i] for i in qpos_idx])
-        check_arm_contact_after_move(
-            model, data, arm_ids, qpos_idx, np.array([1.0, 1.0])
-        )
+        check_arm_contact_after_move(model, data, arm_ids, qpos_idx, np.array([1.0, 1.0]))
         q_after = np.array([data.qpos[i] for i in qpos_idx])
         np.testing.assert_allclose(q_before, q_after)
 
@@ -322,6 +334,7 @@ class TestWithRealModels:
     def ur5e(self):
         try:
             from mj_manipulator.menagerie import menagerie_scene
+
             scene = menagerie_scene("universal_robots_ur5e")
         except FileNotFoundError:
             pytest.skip("mujoco_menagerie not available")
@@ -329,17 +342,21 @@ class TestWithRealModels:
         data = mujoco.MjData(model)
         # Set home
         home = [-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0]
-        joints = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
-                   "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
+        joints = [
+            "shoulder_pan_joint",
+            "shoulder_lift_joint",
+            "elbow_joint",
+            "wrist_1_joint",
+            "wrist_2_joint",
+            "wrist_3_joint",
+        ]
         qpos_idx, qvel_idx = [], []
         for i, name in enumerate(joints):
             jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
             qpos_idx.append(model.jnt_qposadr[jid])
             qvel_idx.append(model.jnt_dofadr[jid])
             data.qpos[model.jnt_qposadr[jid]] = home[i]
-        ee_id = mujoco.mj_name2id(
-            model, mujoco.mjtObj.mjOBJ_SITE, "attachment_site"
-        )
+        ee_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "attachment_site")
         mujoco.mj_forward(model, data)
         return model, data, qpos_idx, qvel_idx, ee_id
 
@@ -347,6 +364,7 @@ class TestWithRealModels:
     def franka(self):
         try:
             from mj_manipulator.menagerie import menagerie_scene
+
             scene = menagerie_scene("franka_emika_panda")
         except FileNotFoundError:
             pytest.skip("mujoco_menagerie not available")
@@ -377,7 +395,11 @@ class TestWithRealModels:
     def test_ur5e_step_twist(self, ur5e):
         model, data, qpos_idx, qvel_idx, ee_id = ur5e
         q_new, result = step_twist(
-            model, data, ee_id, qpos_idx, qvel_idx,
+            model,
+            data,
+            ee_id,
+            qpos_idx,
+            qvel_idx,
             q_min=-np.ones(6) * 6.28,
             q_max=np.ones(6) * 6.28,
             qd_max=np.ones(6) * 2.0,
@@ -394,7 +416,11 @@ class TestWithRealModels:
         # world direction than Y in world frame.
         twist_y = np.array([0, 0.05, 0, 0, 0, 0])
         q_world, _ = step_twist(
-            model, data, ee_id, qpos_idx, qvel_idx,
+            model,
+            data,
+            ee_id,
+            qpos_idx,
+            qvel_idx,
             q_min=-np.ones(6) * 6.28,
             q_max=np.ones(6) * 6.28,
             qd_max=np.ones(6) * 2.0,
@@ -403,7 +429,11 @@ class TestWithRealModels:
             dt=0.004,
         )
         q_hand, _ = step_twist(
-            model, data, ee_id, qpos_idx, qvel_idx,
+            model,
+            data,
+            ee_id,
+            qpos_idx,
+            qvel_idx,
             q_min=-np.ones(6) * 6.28,
             q_max=np.ones(6) * 6.28,
             qd_max=np.ones(6) * 2.0,
@@ -462,9 +492,7 @@ class TestCartesianController:
         q_min = np.array([-3.14, -3.14])
         q_max = np.array([3.14, 3.14])
         qd_max = np.array([2.0, 2.0])
-        return CartesianController(
-            model, data, ee_id, qpos_idx, qvel_idx, q_min, q_max, qd_max
-        )
+        return CartesianController(model, data, ee_id, qpos_idx, qvel_idx, q_min, q_max, qd_max)
 
     def test_step_returns_result(self, controller):
         result = controller.step(twist=np.array([0.05, 0, 0, 0, 0, 0]), dt=0.004)
@@ -490,8 +518,13 @@ class TestCartesianController:
         model, data = model_and_data
         qpos_idx, qvel_idx, ee_id = arm_indices
         controller = CartesianController(
-            model, data, ee_id, qpos_idx, qvel_idx,
-            q_min=np.array([-3.14, -3.14]), q_max=np.array([3.14, 3.14]),
+            model,
+            data,
+            ee_id,
+            qpos_idx,
+            qvel_idx,
+            q_min=np.array([-3.14, -3.14]),
+            q_max=np.array([3.14, 3.14]),
             qd_max=np.array([2.0, 2.0]),
             config=CartesianControlConfig(length_scale=10.0, min_progress=0.0),
         )
@@ -516,8 +549,13 @@ class TestCartesianController:
         model, data = model_and_data
         qpos_idx, qvel_idx, ee_id = arm_indices
         controller = CartesianController(
-            model, data, ee_id, qpos_idx, qvel_idx,
-            q_min=np.array([-3.14, -3.14]), q_max=np.array([3.14, 3.14]),
+            model,
+            data,
+            ee_id,
+            qpos_idx,
+            qvel_idx,
+            q_min=np.array([-3.14, -3.14]),
+            q_max=np.array([3.14, 3.14]),
             qd_max=np.array([2.0, 2.0]),
             config=CartesianControlConfig(min_progress=0.0),
         )
@@ -541,8 +579,13 @@ class TestCartesianController:
         qpos_idx, qvel_idx, ee_id = arm_indices
         # Large L reduces angular penalty so joint1 can achieve y-translation
         controller = CartesianController(
-            model, data, ee_id, qpos_idx, qvel_idx,
-            q_min=np.array([-3.14, -3.14]), q_max=np.array([3.14, 3.14]),
+            model,
+            data,
+            ee_id,
+            qpos_idx,
+            qvel_idx,
+            q_min=np.array([-3.14, -3.14]),
+            q_max=np.array([3.14, 3.14]),
             qd_max=np.array([2.0, 2.0]),
             config=CartesianControlConfig(length_scale=10.0, min_progress=0.0),
         )
@@ -553,8 +596,12 @@ class TestCartesianController:
         target[:3, 3] = data.site_xpos[ee_id] + np.array([0, 0.02, 0])
 
         result = controller.move_to(
-            target, dt=0.004, max_duration=10.0, speed=0.05,
-            position_tol=0.005, rotation_tol=0.1,
+            target,
+            dt=0.004,
+            max_duration=10.0,
+            speed=0.05,
+            position_tol=0.005,
+            rotation_tol=0.1,
         )
         assert result.terminated_by == "condition"
         pos_err = np.linalg.norm(target[:3, 3] - data.site_xpos[ee_id])
@@ -567,8 +614,13 @@ class TestCartesianController:
         model, data = model_and_data
         qpos_idx, qvel_idx, ee_id = arm_indices
         controller = CartesianController(
-            model, data, ee_id, qpos_idx, qvel_idx,
-            q_min=np.array([-3.14, -3.14]), q_max=np.array([3.14, 3.14]),
+            model,
+            data,
+            ee_id,
+            qpos_idx,
+            qvel_idx,
+            q_min=np.array([-3.14, -3.14]),
+            q_max=np.array([3.14, 3.14]),
             qd_max=np.array([2.0, 2.0]),
             config=CartesianControlConfig(length_scale=10.0, min_progress=0.0),
         )
@@ -594,8 +646,13 @@ class TestCartesianController:
         model, data = model_and_data
         qpos_idx, qvel_idx, ee_id = arm_indices
         controller = CartesianController(
-            model, data, ee_id, qpos_idx, qvel_idx,
-            q_min=np.array([-3.14, -3.14]), q_max=np.array([3.14, 3.14]),
+            model,
+            data,
+            ee_id,
+            qpos_idx,
+            qvel_idx,
+            q_min=np.array([-3.14, -3.14]),
+            q_max=np.array([3.14, 3.14]),
             qd_max=np.array([2.0, 2.0]),
             config=CartesianControlConfig(length_scale=10.0, min_progress=0.0),
         )

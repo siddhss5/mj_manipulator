@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Jacobian-based Cartesian velocity control.
 
 Core function ``twist_to_joint_velocity()`` solves a constrained QP:
@@ -198,7 +201,7 @@ def twist_to_joint_velocity(
         u[infeasible] = np.maximum(u[infeasible], 0)
 
     # Step 2: Build QP matrices
-    w_diag = np.array([1.0, 1.0, 1.0, 1.0/L**2, 1.0/L**2, 1.0/L**2])
+    w_diag = np.array([1.0, 1.0, 1.0, 1.0 / L**2, 1.0 / L**2, 1.0 / L**2])
     W = np.diag(w_diag)
 
     JtW = J.T @ W
@@ -236,9 +239,7 @@ def twist_to_joint_velocity(
 
     twist_norm = float(np.sqrt(twist @ W @ twist))
     if twist_norm > 1e-10:
-        achieved_fraction = float(
-            np.dot(twist_achieved, W @ twist) / (twist_norm**2)
-        )
+        achieved_fraction = float(np.dot(twist_achieved, W @ twist) / (twist_norm**2))
         achieved_fraction = max(0.0, min(1.0, achieved_fraction))
     else:
         achieved_fraction = 1.0
@@ -319,9 +320,15 @@ def step_twist(
     q_current = np.array([data.qpos[idx] for idx in joint_qpos_indices])
 
     result = twist_to_joint_velocity(
-        J=J, twist=twist, q_current=q_current,
-        q_min=q_min, q_max=q_max, qd_max=qd_max,
-        dt=dt, config=config, q_dot_prev=q_dot_prev,
+        J=J,
+        twist=twist,
+        q_current=q_current,
+        q_min=q_min,
+        q_max=q_max,
+        qd_max=qd_max,
+        dt=dt,
+        config=config,
+        q_dot_prev=q_dot_prev,
     )
 
     q_new = q_current + result.joint_velocities * dt
@@ -375,17 +382,13 @@ def get_arm_body_ids(
     body_ids: set[int] = set()
 
     for joint_name in joint_names:
-        joint_id = mujoco.mj_name2id(
-            model, mujoco.mjtObj.mjOBJ_JOINT, joint_name
-        )
+        joint_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
         if joint_id != -1:
             body_ids.add(model.jnt_bodyid[joint_id])
 
     if gripper_body_names:
         for name in gripper_body_names:
-            body_id = mujoco.mj_name2id(
-                model, mujoco.mjtObj.mjOBJ_BODY, name
-            )
+            body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
             if body_id != -1:
                 body_ids.add(body_id)
 
@@ -436,11 +439,13 @@ def _rotation_error_axis_angle(R_target: np.ndarray, R_current: np.ndarray) -> n
     if angle < 1e-8:
         return np.zeros(3)
     skew_factor = angle / (2.0 * np.sin(angle))
-    return skew_factor * np.array([
-        R_err[2, 1] - R_err[1, 2],
-        R_err[0, 2] - R_err[2, 0],
-        R_err[1, 0] - R_err[0, 1],
-    ])
+    return skew_factor * np.array(
+        [
+            R_err[2, 1] - R_err[1, 2],
+            R_err[0, 2] - R_err[2, 0],
+            R_err[1, 0] - R_err[0, 1],
+        ]
+    )
 
 
 class CartesianController:
@@ -804,9 +809,7 @@ def check_arm_contact_after_move(
         data.qpos[idx] = q_new[i]
     mujoco.mj_forward(model, data)
 
-    contact_geom = check_arm_contact(
-        model, data, arm_body_ids, exclude_self_collision
-    )
+    contact_geom = check_arm_contact(model, data, arm_body_ids, exclude_self_collision)
 
     for i, idx in enumerate(joint_qpos_indices):
         data.qpos[idx] = q_saved[i]

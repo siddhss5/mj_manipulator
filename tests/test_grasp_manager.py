@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Tests for GraspManager.
 
 Uses a minimal inline MuJoCo model with a 2-DOF arm and a freejoint box
@@ -221,7 +224,8 @@ class TestDetectGraspedObject:
         mujoco.mj_forward(model, data)
 
         result = detect_grasped_object(
-            model, data,
+            model,
+            data,
             ["left_finger", "right_finger"],
             candidate_objects=["box1", "box2"],
         )
@@ -231,7 +235,8 @@ class TestDetectGraspedObject:
         """candidate_objects filters to specific objects."""
         model, data = model_and_data
         result = detect_grasped_object(
-            model, data,
+            model,
+            data,
             ["left_finger", "right_finger"],
             candidate_objects=["nonexistent"],
         )
@@ -242,7 +247,8 @@ class TestDetectGraspedObject:
         model, data = model_and_data
         # Even without contact, the function should accept the parameter
         result = detect_grasped_object(
-            model, data,
+            model,
+            data,
             ["left_finger", "right_finger"],
             finger_groups={"left": ["left_finger"], "right": ["right_finger"]},
         )
@@ -257,7 +263,8 @@ class TestDetectGraspedObject:
         # right_finger contains "right_" so should be right group
         # This just tests the path doesn't raise
         result = detect_grasped_object(
-            model, data,
+            model,
+            data,
             ["left_finger", "right_finger"],
         )
         # Result depends on contacts

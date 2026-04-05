@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Trajectory execution for simulation and real robot.
 
 Provides two executors:
@@ -63,16 +66,13 @@ class KinematicExecutor:
         self._last_viewer_sync = 0.0
         self._viewer_sync_interval = viewer_sync_interval
 
-        self._target_position = np.array([
-            data.qpos[idx] for idx in joint_qpos_indices
-        ])
+        self._target_position = np.array([data.qpos[idx] for idx in joint_qpos_indices])
 
     def execute(self, trajectory: Trajectory) -> bool:
         """Execute trajectory kinematically with perfect tracking."""
         if trajectory.dof != len(self.joint_qpos_indices):
             raise ValueError(
-                f"Trajectory DOF {trajectory.dof} doesn't match "
-                f"joint count {len(self.joint_qpos_indices)}"
+                f"Trajectory DOF {trajectory.dof} doesn't match joint count {len(self.joint_qpos_indices)}"
             )
 
         t_start = time.time()
@@ -170,10 +170,7 @@ class PhysicsExecutor:
         self.model = model
         self.data = data
         self.joint_qpos_indices = joint_qpos_indices
-        self.joint_qvel_indices = (
-            joint_qvel_indices if joint_qvel_indices is not None
-            else joint_qpos_indices
-        )
+        self.joint_qvel_indices = joint_qvel_indices if joint_qvel_indices is not None else joint_qpos_indices
         self.actuator_ids = actuator_ids
         self.control_dt = control_dt
         self.lookahead_time = lookahead_time
@@ -181,9 +178,7 @@ class PhysicsExecutor:
 
         self.steps_per_control = max(1, int(control_dt / model.opt.timestep))
 
-        self._target_position = np.array([
-            data.qpos[idx] for idx in joint_qpos_indices
-        ])
+        self._target_position = np.array([data.qpos[idx] for idx in joint_qpos_indices])
         self._target_velocity = np.zeros(len(joint_qpos_indices))
 
         self._last_viewer_sync = 0.0
@@ -207,10 +202,7 @@ class PhysicsExecutor:
 
     def step(self) -> None:
         """Apply control and step physics once."""
-        q_command = (
-            self._target_position
-            + self.lookahead_time * self._target_velocity
-        )
+        q_command = self._target_position + self.lookahead_time * self._target_velocity
         for joint_idx, actuator_id in enumerate(self.actuator_ids):
             self.data.ctrl[actuator_id] = q_command[joint_idx]
 
@@ -225,17 +217,14 @@ class PhysicsExecutor:
 
     def hold(self) -> None:
         """Capture current position and hold it."""
-        self._target_position = np.array([
-            self.data.qpos[idx] for idx in self.joint_qpos_indices
-        ])
+        self._target_position = np.array([self.data.qpos[idx] for idx in self.joint_qpos_indices])
         self._target_velocity = np.zeros(len(self.joint_qpos_indices))
 
     def execute(self, trajectory: Trajectory, abort_fn=None) -> bool:
         """Execute trajectory with velocity feedforward."""
         if trajectory.dof != len(self.joint_qpos_indices):
             raise ValueError(
-                f"Trajectory DOF {trajectory.dof} doesn't match "
-                f"joint count {len(self.joint_qpos_indices)}"
+                f"Trajectory DOF {trajectory.dof} doesn't match joint count {len(self.joint_qpos_indices)}"
             )
 
         for i in range(trajectory.num_waypoints):
@@ -265,15 +254,11 @@ class PhysicsExecutor:
 
     def get_position(self) -> np.ndarray:
         """Get current actual joint positions."""
-        return np.array([
-            self.data.qpos[idx] for idx in self.joint_qpos_indices
-        ])
+        return np.array([self.data.qpos[idx] for idx in self.joint_qpos_indices])
 
     def get_velocity(self) -> np.ndarray:
         """Get current actual joint velocities."""
-        return np.array([
-            self.data.qvel[idx] for idx in self.joint_qvel_indices
-        ])
+        return np.array([self.data.qvel[idx] for idx in self.joint_qvel_indices])
 
     def get_tracking_error(self) -> np.ndarray:
         """Get target - actual position error."""

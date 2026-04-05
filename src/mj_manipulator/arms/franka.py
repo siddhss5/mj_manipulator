@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Franka Emika Panda arm definition with EAIK analytical IK.
 
 Provides constants and a factory function for creating a fully configured
@@ -44,12 +47,8 @@ FRANKA_JOINT_NAMES = [f"joint{i}" for i in range(1, 8)]
 FRANKA_HOME = np.array([0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853])
 
 # From Franka documentation, halved for conservative planning
-FRANKA_VELOCITY_LIMITS = (
-    np.array([2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61]) * 0.5
-)
-FRANKA_ACCELERATION_LIMITS = (
-    np.array([15.0, 7.5, 10.0, 12.5, 15.0, 20.0, 20.0]) * 0.5
-)
+FRANKA_VELOCITY_LIMITS = np.array([2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61]) * 0.5
+FRANKA_ACCELERATION_LIMITS = np.array([15.0, 7.5, 10.0, 12.5, 15.0, 20.0, 20.0]) * 0.5
 
 # Joint 5 (index 4) is the only joint whose locking yields a known EAIK
 # decomposition (SPHERICAL_SECOND_TWO_PARALLEL). Determined via:

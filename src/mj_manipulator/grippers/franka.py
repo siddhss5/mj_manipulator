@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Franka Emika Panda hand gripper implementation.
 
 Supports both physics-mode (actuator-driven) and kinematic-mode (direct
@@ -39,8 +42,8 @@ _BODY_SUFFIXES = ["hand", "left_finger", "right_finger"]
 _ATTACHMENT_BODY_SUFFIX = "hand"
 
 # Finger joint range (slide joints, meters).
-_FINGER_OPEN = 0.04   # Fully open position
-_FINGER_CLOSED = 0.0   # Fully closed position
+_FINGER_OPEN = 0.04  # Fully open position
+_FINGER_CLOSED = 0.0  # Fully closed position
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +103,9 @@ class FrankaGripper(_BaseGripper):
         for suffix in _FINGER_JOINT_SUFFIXES:
             full_name = f"{prefix}{suffix}"
             joint_id = mujoco.mj_name2id(
-                model, mujoco.mjtObj.mjOBJ_JOINT, full_name,
+                model,
+                mujoco.mjtObj.mjOBJ_JOINT,
+                full_name,
             )
             if joint_id != -1:
                 self._finger_qpos_indices.append(model.jnt_qposadr[joint_id])

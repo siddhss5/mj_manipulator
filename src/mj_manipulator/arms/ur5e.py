@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """UR5e arm definition with EAIK analytical IK.
 
 Provides constants and a factory function for creating a fully configured

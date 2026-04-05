@@ -1,13 +1,19 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Siddhartha Srinivasa
+
 """Tests for TeleopController."""
 
-import numpy as np
-import pytest
 import time
 
-from mj_manipulator.teleop import (
-    SafetyMode, TeleopConfig, TeleopController, TeleopFrame, TeleopState,
-)
+import numpy as np
 
+from mj_manipulator.teleop import (
+    SafetyMode,
+    TeleopConfig,
+    TeleopController,
+    TeleopFrame,
+    TeleopState,
+)
 
 # -- Mock objects for testing without MuJoCo ---------------------------------
 
@@ -56,6 +62,7 @@ class MockArm:
 
         class _Config:
             name = "test_arm"
+
         self.config = _Config()
 
     def create_planner(self, config=None):
@@ -88,7 +95,6 @@ class MockContext:
 
 
 class TestTeleopLifecycle:
-
     def test_initial_state_is_idle(self):
         arm = MockArm()
         ctx = MockContext()
@@ -124,7 +130,6 @@ class TestTeleopLifecycle:
 
 
 class TestPoseInput:
-
     def test_pose_tracking_with_valid_ik(self):
         q_solution = np.array([0.01, 0.01, 0.01, 0.01, 0.01, 0.01])
         arm = MockArm(ik_solutions=[q_solution])
@@ -195,7 +200,6 @@ class TestPoseInput:
 
 
 class TestIdleTimeout:
-
     def test_idle_after_timeout_twist(self):
         """Twist input goes idle after timeout (pose input persists)."""
         arm = MockArm()
@@ -243,7 +247,6 @@ class TestIdleTimeout:
 
 
 class TestInputSwitching:
-
     def test_pose_clears_twist(self):
         arm = MockArm(ik_solutions=[np.array([0.01] * 6)])
         ctx = MockContext()
@@ -259,7 +262,6 @@ class TestInputSwitching:
 
 
 class TestRecording:
-
     def test_record_frames(self):
         q_solution = np.array([0.01] * 6)
         arm = MockArm(ik_solutions=[q_solution])
@@ -336,7 +338,6 @@ class TestRecording:
 
 
 class TestSafetyModes:
-
     def test_allow_moves_but_flags_collision(self):
         q = np.array([0.01] * 6)
         arm = MockArm(ik_solutions=[q], collision_valid=False)
