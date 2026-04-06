@@ -256,22 +256,16 @@ class PhysicsController:
         self._step_physics()
 
     def step_idle(self) -> None:
-        """Step physics holding all arms at their current positions.
+        """Step physics holding all arms at their current targets.
 
-        Reads actual qpos each cycle (not stale targets) so there's no
-        transient when another controller takes over an arm.
+        Uses target_position with zero velocity feedforward. This holds
+        arms against gravity (unlike reading qpos which would drift down).
         """
         for state in self._arms.values():
-            q_now = self.data.qpos[state.joint_qpos_indices]
-            state.target_position = q_now.copy()
-            state.target_velocity = np.zeros(len(state.actuator_ids))
-            self.data.ctrl[state.actuator_ids] = q_now
+            self.data.ctrl[state.actuator_ids] = state.target_position
 
         for state in self._entities.values():
-            q_now = self.data.qpos[state.joint_qpos_indices]
-            state.target_position = q_now.copy()
-            state.target_velocity = np.zeros(len(state.target_velocity))
-            self.data.ctrl[state.actuator_ids] = q_now
+            self.data.ctrl[state.actuator_ids] = state.target_position
 
         self._step_physics()
 
