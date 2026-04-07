@@ -334,9 +334,14 @@ class SimContext:
     def _execute_tick_driven(self, item: object) -> bool:
         """Execute via non-blocking trajectory runners.
 
-        Starts runners on the physics thread, then blocks the caller on
-        Futures. The physics thread keeps ticking — advancing runners,
-        stepping teleop, stepping physics — while the caller waits.
+        Two modes depending on which thread calls:
+
+        - **Owner thread** (IPython command): starts the runner, then pumps
+          tick() ourselves until it completes. This keeps physics stepping
+          and teleop on other arms alive.
+
+        - **Background thread** (chat): starts the runner via submit, then
+          blocks on Future. The inputhook pumps tick() on the owner thread.
         """
         from mj_manipulator.planning import PlanResult
         from mj_manipulator.trajectory import Trajectory
@@ -347,6 +352,8 @@ class SimContext:
             trajectories = [item]
         else:
             raise TypeError(f"Cannot execute {type(item)}")
+
+        on_owner_thread = threading.get_ident() == self._event_loop._owner_thread
 
         for traj in trajectories:
             entity = traj.entity
@@ -360,25 +367,32 @@ class SimContext:
             elif self._abort_fn is not None:
                 abort_fn = self._abort_fn
 
-            # Start the runner on the physics thread (fast, non-blocking)
-            runner_future: Future[bool] = Future()
-
-            def _start(t=traj, af=abort_fn, rf=runner_future):
-                try:
-                    f = self._controller.start_trajectory(t.entity, t, af)
-                    f.add_done_callback(lambda done_f: rf.set_result(done_f.result()))
-                except Exception as e:
-                    rf.set_exception(e)
-
-            if threading.get_ident() == self._event_loop._owner_thread:
-                _start()
+            if on_owner_thread:
+                # We ARE the tick pump — start runner and drive tick() directly
+                future = self._controller.start_trajectory(entity, traj, abort_fn)
+                control_dt = self._controller.control_dt
+                realtime = self._controller.viewer is not None
+                while not future.done():
+                    self._event_loop.tick()
+                    if realtime:
+                        time.sleep(control_dt)
+                if not future.result():
+                    return False
             else:
-                self._event_loop.submit(_start)
+                # Background thread — submit start, block on future while
+                # the inputhook pumps tick() on the owner thread
+                runner_future: Future[bool] = Future()
 
-            # Block caller until this trajectory completes
-            result = runner_future.result()
-            if not result:
-                return False
+                def _start(t=traj, af=abort_fn, rf=runner_future):
+                    try:
+                        f = self._controller.start_trajectory(t.entity, t, af)
+                        f.add_done_callback(lambda done_f: rf.set_result(done_f.result()))
+                    except Exception as e:
+                        rf.set_exception(e)
+
+                self._event_loop.submit(_start)
+                if not runner_future.result():
+                    return False
 
         return True
 
