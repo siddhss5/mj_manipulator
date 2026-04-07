@@ -312,6 +312,9 @@ class SimContext:
         tick() advances the runner each cycle. Physics keeps stepping
         and teleop on other arms continues working.
 
+        If teleop is active on the target arm, it is deactivated first.
+        This is the per-arm equivalent of the old _deactivate_all_teleop().
+
         In legacy mode (no event loop, or kinematic), execution is
         synchronous and blocking.
 
@@ -322,6 +325,8 @@ class SimContext:
             True if execution completed successfully.
         """
         if self._event_loop is not None and self._controller is not None:
+            # Deactivate teleop on affected arms before starting
+            self._deactivate_teleop_for_item(item)
             return self._execute_tick_driven(item)
 
         if self._event_loop is not None:
@@ -366,11 +371,17 @@ class SimContext:
                 from mj_manipulator.ownership import OwnerKind
 
                 kind, _ = self._ownership.owner_of(entity)
-                if kind == OwnerKind.TELEOP:
-                    # Deactivate teleop on this arm so trajectory can run.
-                    # This is the per-arm equivalent of the old
-                    # _deactivate_all_teleop() call in execute().
-                    self._deactivate_teleop_for(entity)
+                if kind != OwnerKind.IDLE:
+                    # Arm is owned by another controller (teleop, etc.).
+                    # Don't fight it — the user or another system has
+                    # explicit control. Return False so the caller knows
+                    # execution didn't happen.
+                    logger.info(
+                        "Cannot execute on %s: owned by %s",
+                        entity,
+                        kind.value,
+                    )
+                    return False
                 self._ownership.acquire(entity, OwnerKind.TRAJECTORY, traj)
                 abort_fn = lambda e=entity: self._ownership.is_aborted(e)
             elif self._abort_fn is not None:
@@ -604,6 +615,26 @@ class SimContext:
                 self._last_viewer_sync = now
 
     # -- Internal helpers ----------------------------------------------------
+
+    def _deactivate_teleop_for_item(self, item: object) -> None:
+        """Deactivate teleop on all arms referenced by a trajectory/plan."""
+        if self._ownership is None:
+            return
+        from mj_manipulator.ownership import OwnerKind
+        from mj_manipulator.planning import PlanResult
+        from mj_manipulator.trajectory import Trajectory
+
+        if isinstance(item, PlanResult):
+            entities = {t.entity for t in item.trajectories if t.entity}
+        elif isinstance(item, Trajectory):
+            entities = {item.entity} if item.entity else set()
+        else:
+            return
+
+        for entity in entities:
+            kind, _ = self._ownership.owner_of(entity)
+            if kind == OwnerKind.TELEOP:
+                self._deactivate_teleop_for(entity)
 
     def _deactivate_teleop_for(self, entity: str) -> None:
         """Deactivate any teleop controller owning this arm.
