@@ -23,6 +23,8 @@ from mj_manipulator.bt.nodes import (
     CartesianMove,
     CheckNotNearConfig,
     Execute,
+    GenerateGrasps,
+    GeneratePlaceTSRs,
     Grasp,
     PlanToConfig,
     PlanToTSRs,
@@ -237,5 +239,44 @@ def place_with_recovery(ns: str) -> py_trees.composites.Selector:
                 name="recover_then_fail",
                 child=recover_keep_grasp(ns),
             ),
+        ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Full primitives with TSR generation (requires GraspSource on blackboard)
+# ---------------------------------------------------------------------------
+
+
+def full_pickup(ns: str) -> py_trees.composites.Sequence:
+    """Generate grasp TSRs then pickup with recovery.
+
+    Requires on blackboard:
+        ``{ns}/grasp_source``, ``{ns}/hand_type``, ``{ns}/object_name``,
+        ``{ns}/arm``, ``{ns}/arm_name``, ``{ns}/timeout``, ``/context``
+    """
+    return py_trees.composites.Sequence(
+        name="full_pickup",
+        memory=True,
+        children=[
+            GenerateGrasps(ns=ns),
+            pickup_with_recovery(ns),
+        ],
+    )
+
+
+def full_place(ns: str) -> py_trees.composites.Sequence:
+    """Generate placement TSRs then place with recovery.
+
+    Requires on blackboard:
+        ``{ns}/grasp_source``, ``{ns}/destination``, ``{ns}/object_name``,
+        ``{ns}/arm``, ``{ns}/arm_name``, ``{ns}/timeout``, ``/context``
+    """
+    return py_trees.composites.Sequence(
+        name="full_place",
+        memory=True,
+        children=[
+            GeneratePlaceTSRs(ns=ns),
+            place_with_recovery(ns),
         ],
     )
