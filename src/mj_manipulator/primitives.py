@@ -273,7 +273,6 @@ def go_home(
         raise RuntimeError("No active execution context. Use 'with robot.sim() as ctx:'")
 
     robot.clear_abort()
-    _deactivate_teleop_for_arms(robot)
     try:
         return _go_home_inner(robot, ctx, arm=arm, verbose=verbose)
     except KeyboardInterrupt:
