@@ -84,26 +84,16 @@ class PhysicsEventLoop:
         return fut.result()
 
     def yield_to_others(self) -> None:
-        """Process pending commands and step other controllers.
+        """Update other arms' teleop targets during a trajectory.
 
-        Called by execute() between control cycles so other arms' teleop,
-        queued activations, etc. run promptly during a long trajectory.
-        Does NOT run idle_step (the trajectory is already stepping physics).
+        Called by execute() between control cycles. Only updates teleop
+        targets (step_physics=False) — the trajectory's own step() applies
+        all arms in one mj_step.
+
+        Does NOT drain the command queue — queued commands (like teleop
+        activation on the same arm) must wait until execute() finishes
+        to avoid conflicting control on the same arm.
         """
-        # Drain queued commands (teleop activation, etc.)
-        while True:
-            try:
-                cmd = self._queue.get_nowait()
-            except queue.Empty:
-                break
-            try:
-                result = cmd.fn()
-                cmd.future.set_result(result)
-            except Exception as e:
-                cmd.future.set_exception(e)
-
-        # Update teleop targets (other arms) without stepping physics.
-        # The trajectory's step() will apply all arms' targets in one mj_step.
         with self._teleop_lock:
             entries = list(self._teleop_entries)
         for controller, panel in entries:
