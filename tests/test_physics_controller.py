@@ -14,7 +14,6 @@ from mj_manipulator.config import PhysicsExecutionConfig
 from mj_manipulator.physics_controller import (
     ArmPhysicsExecutor,
     PhysicsController,
-    TrajectoryRunner,
 )
 from mj_manipulator.trajectory import Trajectory
 

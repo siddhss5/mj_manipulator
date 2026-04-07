@@ -381,7 +381,11 @@ class SimContext:
                     )
                     return False
                 self._ownership.acquire(entity, OwnerKind.TRAJECTORY, traj)
-                abort_fn = lambda e=entity: self._ownership.is_aborted(e)
+
+                def _make_abort_fn(e=entity):
+                    return self._ownership.is_aborted(e)
+
+                abort_fn = _make_abort_fn
             elif self._abort_fn is not None:
                 abort_fn = self._abort_fn
 
@@ -493,9 +497,7 @@ class SimContext:
 
         if self._event_loop is not None and self._controller is not None:
             # Tick-driven: set targets only, tick() will step physics
-            self._event_loop.run_on_physics_thread(
-                lambda: self._set_reactive_target(arm_name, position, velocity)
-            )
+            self._event_loop.run_on_physics_thread(lambda: self._set_reactive_target(arm_name, position, velocity))
         elif self._event_loop is not None:
             self._event_loop.run_on_physics_thread(lambda: self._step_cartesian_impl(arm_name, position, velocity))
         else:
@@ -506,8 +508,7 @@ class SimContext:
         state = self._controller._arms[arm_name]
         state.target_position = np.asarray(position).copy()
         state.target_velocity = (
-            np.asarray(velocity).copy() if velocity is not None
-            else np.zeros(len(state.actuator_ids))
+            np.asarray(velocity).copy() if velocity is not None else np.zeros(len(state.actuator_ids))
         )
         state.lookahead = 2.0 * self._controller.control_dt
 

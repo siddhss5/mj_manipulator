@@ -29,7 +29,6 @@ mj-environment = { workspace = true }
 pycbirrt = { workspace = true }
 tsr = { workspace = true }
 prl-assets = { workspace = true }
-asset-manager = { workspace = true }
 geodude-assets = { workspace = true }
 
 [project.optional-dependencies]

@@ -59,12 +59,8 @@ class OwnershipRegistry:
 
     def __init__(self, arm_names: list[str]) -> None:
         self._lock = threading.Lock()
-        self._owners: dict[str, tuple[OwnerKind, object | None]] = {
-            name: (OwnerKind.IDLE, None) for name in arm_names
-        }
-        self._abort_events: dict[str, threading.Event] = {
-            name: threading.Event() for name in arm_names
-        }
+        self._owners: dict[str, tuple[OwnerKind, object | None]] = {name: (OwnerKind.IDLE, None) for name in arm_names}
+        self._abort_events: dict[str, threading.Event] = {name: threading.Event() for name in arm_names}
 
     @property
     def arm_names(self) -> list[str]:
