@@ -325,8 +325,6 @@ class SimContext:
             True if execution completed successfully.
         """
         if self._event_loop is not None and self._controller is not None:
-            # Deactivate teleop on affected arms before starting
-            self._deactivate_teleop_for_item(item)
             return self._execute_tick_driven(item)
 
         if self._event_loop is not None:
