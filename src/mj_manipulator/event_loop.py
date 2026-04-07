@@ -62,6 +62,7 @@ class PhysicsEventLoop:
         self._teleop_lock = threading.Lock()  # protects _teleop_entries
         self._idle_step_fn: Callable[[], None] | None = None
         self._viewer_sync_fn: Callable[[], None] | None = None
+        self._executing_entity: str | None = None  # arm currently in execute()
 
     # -- Public API (any thread) ---------------------------------------------
 
@@ -100,19 +101,42 @@ class PhysicsEventLoop:
         with self._teleop_lock:
             self._teleop_entries = [(c, p) for c, p in self._teleop_entries if c is not controller]
 
-    def _deactivate_all_teleop(self) -> None:
-        """Deactivate all teleop controllers and reset their panels."""
+    def is_executing(self, entity: str | None = None) -> bool:
+        """Check if an entity is currently executing a trajectory.
+
+        Args:
+            entity: Arm name to check, or None to check if anything is executing.
+        """
+        if entity is None:
+            return self._executing_entity is not None
+        return self._executing_entity == entity
+
+    def deactivate_teleop(self, entity: str | None = None) -> None:
+        """Deactivate teleop controllers and reset their panels.
+
+        Args:
+            entity: Arm/entity name to deactivate (e.g. "left", "right").
+                If None, deactivates all controllers.
+        """
         with self._teleop_lock:
-            entries = list(self._teleop_entries)
-            self._teleop_entries.clear()
-        for controller, panel in entries:
+            if entity is None:
+                to_deactivate = list(self._teleop_entries)
+                self._teleop_entries.clear()
+            else:
+                to_deactivate = [
+                    (c, p) for c, p in self._teleop_entries if c._arm.config.name == entity
+                ]
+                self._teleop_entries = [
+                    (c, p) for c, p in self._teleop_entries if c._arm.config.name != entity
+                ]
+        for controller, panel in to_deactivate:
             try:
                 controller.deactivate()
             except Exception:
                 pass
             if panel is not None:
                 try:
-                    panel._on_teleop_error()  # resets gizmo/button/status
+                    panel._on_teleop_error()
                 except Exception:
                     pass
 
@@ -136,7 +160,7 @@ class PhysicsEventLoop:
         else:
             # Deactivate all teleop controllers before running a command —
             # the command (trajectory, grasp, etc.) needs exclusive control.
-            self._deactivate_all_teleop()
+            self.deactivate_teleop()
             try:
                 result = cmd.fn()
                 cmd.future.set_result(result)

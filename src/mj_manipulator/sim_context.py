@@ -297,7 +297,16 @@ class SimContext:
             True if execution completed successfully.
         """
         if self._event_loop is not None:
-            self._event_loop._deactivate_all_teleop()
+            # Deactivate teleop only on the arms this execution will use.
+            from mj_manipulator.planning import PlanResult
+            from mj_manipulator.trajectory import Trajectory
+
+            if isinstance(item, PlanResult):
+                for traj in item.trajectories:
+                    if traj.entity is not None:
+                        self._event_loop.deactivate_teleop(traj.entity)
+            elif isinstance(item, Trajectory) and item.entity is not None:
+                self._event_loop.deactivate_teleop(item.entity)
             return self._event_loop.run_on_physics_thread(lambda: self._execute_impl(item))
         return self._execute_impl(item)
 
@@ -310,11 +319,23 @@ class SimContext:
             for traj in item.trajectories:
                 if self._abort_fn is not None and self._abort_fn():
                     return False
+                if self._event_loop is not None and traj.entity is not None:
+                    self._event_loop._executing_entity = traj.entity
                 if not self._execute_trajectory(traj):
+                    if self._event_loop is not None:
+                        self._event_loop._executing_entity = None
                     return False
+            if self._event_loop is not None:
+                self._event_loop._executing_entity = None
             return True
         elif isinstance(item, Trajectory):
-            return self._execute_trajectory(item)
+            if self._event_loop is not None and item.entity is not None:
+                self._event_loop._executing_entity = item.entity
+            try:
+                return self._execute_trajectory(item)
+            finally:
+                if self._event_loop is not None:
+                    self._event_loop._executing_entity = None
         else:
             raise TypeError(f"Cannot execute {type(item)}")
 
