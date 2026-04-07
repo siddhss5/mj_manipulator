@@ -210,6 +210,7 @@ class SimContext:
         viewer_fps: float = 30.0,
         entities: dict[str, object] | None = None,
         abort_fn: object | None = None,
+        event_loop: object | None = None,
     ):
         self._model = model
         self._data = data
@@ -222,6 +223,7 @@ class SimContext:
         self._initial_positions = initial_positions
         self._abort_fn = abort_fn
         self._viewer_fps = viewer_fps
+        self._event_loop = event_loop
 
         self._controller: PhysicsController | None = None
         self._executors: dict[str, object] = {}
@@ -285,12 +287,22 @@ class SimContext:
         Routes each trajectory to the appropriate executor based on its
         ``entity`` field. For PlanResult, executes trajectories in order.
 
+        If an event loop is set and this is called from a non-owner thread
+        (e.g. chat), the work is dispatched to the physics thread via Future.
+
         Args:
             item: Trajectory or PlanResult to execute.
 
         Returns:
             True if execution completed successfully.
         """
+        if self._event_loop is not None:
+            self._event_loop._deactivate_all_teleop()
+            return self._event_loop.run_on_physics_thread(lambda: self._execute_impl(item))
+        return self._execute_impl(item)
+
+    def _execute_impl(self, item: object) -> bool:
+        """Execute implementation — always runs on the physics thread."""
         from mj_manipulator.planning import PlanResult
         from mj_manipulator.trajectory import Trajectory
 
@@ -316,20 +328,23 @@ class SimContext:
             targets: Dict mapping arm names to target joint positions.
                 None means hold all arms at current positions.
         """
+        if self._event_loop is not None:
+            self._event_loop.run_on_physics_thread(lambda: self._step_impl(targets))
+        else:
+            self._step_impl(targets)
+
+    def _step_impl(self, targets: dict[str, np.ndarray] | None = None) -> None:
         if self._controller is not None:
-            # Physics mode: delegate to controller
             if targets:
                 for name, q in targets.items():
                     self._controller.set_arm_target(name, q)
             self._controller.step()
         else:
-            # Kinematic mode: set qpos directly
             if targets:
                 for name, q in targets.items():
                     executor = self._executors.get(name)
                     if executor is not None:
                         executor.set_position(np.asarray(q))
-
             mujoco.mj_forward(self._model, self._data)
             self._throttled_viewer_sync()
 
@@ -351,6 +366,12 @@ class SimContext:
         """
         position = np.asarray(position)
 
+        if self._event_loop is not None:
+            self._event_loop.run_on_physics_thread(lambda: self._step_cartesian_impl(arm_name, position, velocity))
+        else:
+            self._step_cartesian_impl(arm_name, position, velocity)
+
+    def _step_cartesian_impl(self, arm_name: str, position: np.ndarray, velocity: np.ndarray | None) -> None:
         if self._controller is not None:
             self._controller.step_reactive(arm_name, position, velocity)
         else:
@@ -361,6 +382,12 @@ class SimContext:
 
     def sync(self) -> None:
         """Synchronize state with simulation (mj_forward + viewer sync)."""
+        if self._event_loop is not None:
+            self._event_loop.run_on_physics_thread(self._sync_impl)
+        else:
+            self._sync_impl()
+
+    def _sync_impl(self) -> None:
         mujoco.mj_forward(self._model, self._data)
         if self._viewer is not None:
             self._viewer.sync()
