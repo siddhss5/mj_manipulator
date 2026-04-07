@@ -25,7 +25,9 @@ def env(model_and_data):
     arm = MockArm("arm", model, data)
     loop = PhysicsEventLoop()
     ctrl = PhysicsController(
-        model, data, {"arm": arm},
+        model,
+        data,
+        {"arm": arm},
         config=PhysicsExecutionConfig(
             control_dt=0.002,
             position_tolerance=0.3,
@@ -101,9 +103,7 @@ class TestTrajectoryTransitions:
         loop, ctrl, reg = env
         traj = _make_traj()
         reg.acquire("arm", OwnerKind.TRAJECTORY, traj)
-        future = ctrl.start_trajectory(
-            "arm", traj, abort_fn=lambda: reg.is_aborted("arm")
-        )
+        future = ctrl.start_trajectory("arm", traj, abort_fn=lambda: reg.is_aborted("arm"))
 
         loop.tick()  # advance one waypoint
         assert not future.done()
@@ -205,9 +205,7 @@ class TestFullCycles:
         # 1. Start trajectory
         traj1 = _make_traj()
         reg.acquire("arm", OwnerKind.TRAJECTORY, traj1)
-        future1 = ctrl.start_trajectory(
-            "arm", traj1, abort_fn=lambda: reg.is_aborted("arm")
-        )
+        future1 = ctrl.start_trajectory("arm", traj1, abort_fn=lambda: reg.is_aborted("arm"))
         loop.tick()
 
         # 2. Preempt with teleop

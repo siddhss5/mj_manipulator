@@ -188,9 +188,7 @@ class TrajectoryRunner:
         pos_error = np.abs(state.target_position - current_pos)
         current_vel = data.qvel[state.joint_qvel_indices]
 
-        if np.all(pos_error < cfg.position_tolerance) and np.all(
-            np.abs(current_vel) < cfg.velocity_tolerance
-        ):
+        if np.all(pos_error < cfg.position_tolerance) and np.all(np.abs(current_vel) < cfg.velocity_tolerance):
             self._finish(True)
             return
 
@@ -560,8 +558,7 @@ class PhysicsController:
 
         if trajectory.dof != len(state.joint_qpos_indices):
             raise ValueError(
-                f"Trajectory DOF {trajectory.dof} doesn't match "
-                f"joint count {len(state.joint_qpos_indices)}"
+                f"Trajectory DOF {trajectory.dof} doesn't match joint count {len(state.joint_qpos_indices)}"
             )
 
         runner = TrajectoryRunner(self, entity_name, trajectory, abort_fn)

@@ -85,6 +85,5 @@ def test_tick_timing_profile(setup):
 
     # Tick should comfortably fit within control_dt
     assert np.percentile(tick_us, 95) < control_dt_us, (
-        f"p95 tick ({np.percentile(tick_us, 95):.0f} µs) exceeds "
-        f"control_dt ({control_dt_us:.0f} µs)"
+        f"p95 tick ({np.percentile(tick_us, 95):.0f} µs) exceeds control_dt ({control_dt_us:.0f} µs)"
     )
