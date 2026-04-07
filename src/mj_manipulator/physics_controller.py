@@ -123,11 +123,13 @@ class PhysicsController:
         initial_positions: dict[str, np.ndarray] | None = None,
         entities: dict[str, object] | None = None,
         abort_fn=None,
+        yield_fn=None,
     ):
         self.model = model
         self.data = data
         self.viewer = viewer
         self._abort_fn = abort_fn
+        self._yield_fn = yield_fn  # called between control cycles to process pending work
 
         self.config = config or PhysicsExecutionConfig()
         self.gripper_config = gripper_config or GripperPhysicsConfig()
@@ -316,18 +318,21 @@ class PhysicsController:
                 f"Trajectory DOF {trajectory.dof} doesn't match arm joint count {len(state.joint_qpos_indices)}"
             )
 
-        # Follow trajectory at real-time rate
+        # Follow trajectory at real-time rate.
+        # Between cycles, yield to the event loop so queued commands
+        # (teleop activation on other arm, viewer sync, etc.) run promptly.
         realtime = self.viewer is not None
         t_start = time.time() if realtime else 0.0
         for i in range(trajectory.num_waypoints):
             if self._abort_fn is not None and self._abort_fn():
                 logger.info("Trajectory aborted at waypoint %d/%d", i, trajectory.num_waypoints)
-                # Zero velocity so arm holds position while other arms move
                 state.target_velocity = np.zeros(len(state.actuator_ids))
                 return False
             state.target_position = trajectory.positions[i]
             state.target_velocity = trajectory.velocities[i]
             self.step()
+            if self._yield_fn is not None:
+                self._yield_fn()
             if realtime:
                 t_target = t_start + (i + 1) * self.control_dt
                 t_remaining = t_target - time.time()

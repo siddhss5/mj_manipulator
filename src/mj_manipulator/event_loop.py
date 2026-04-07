@@ -83,6 +83,24 @@ class PhysicsEventLoop:
         fut = self.submit(fn)
         return fut.result()
 
+    def drain_queue(self) -> None:
+        """Process all pending commands. Safe to call from the physics thread.
+
+        Used by execute() between control cycles so queued work (teleop
+        activation on another arm, etc.) runs promptly without waiting
+        for the full trajectory to finish.
+        """
+        while True:
+            try:
+                cmd = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                result = cmd.fn()
+                cmd.future.set_result(result)
+            except Exception as e:
+                cmd.future.set_exception(e)
+
     # -- Teleop registration (called from viser callbacks) -------------------
 
     def register_teleop(self, controller: Any, panel: Any = None) -> None:

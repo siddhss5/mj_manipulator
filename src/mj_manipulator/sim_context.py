@@ -498,6 +498,7 @@ class SimContext:
             initial_positions=self._initial_positions,
             entities=self._entities,
             abort_fn=self._abort_fn,
+            yield_fn=self._event_loop.drain_queue if self._event_loop is not None else None,
         )
 
         for name in self._arms:
