@@ -83,13 +83,14 @@ class PhysicsEventLoop:
         fut = self.submit(fn)
         return fut.result()
 
-    def drain_queue(self) -> None:
-        """Process all pending commands. Safe to call from the physics thread.
+    def yield_to_others(self) -> None:
+        """Process pending commands and step other controllers.
 
-        Used by execute() between control cycles so queued work (teleop
-        activation on another arm, etc.) runs promptly without waiting
-        for the full trajectory to finish.
+        Called by execute() between control cycles so other arms' teleop,
+        queued activations, etc. run promptly during a long trajectory.
+        Does NOT run idle_step (the trajectory is already stepping physics).
         """
+        # Drain queued commands (teleop activation, etc.)
         while True:
             try:
                 cmd = self._queue.get_nowait()
@@ -100,6 +101,28 @@ class PhysicsEventLoop:
                 cmd.future.set_result(result)
             except Exception as e:
                 cmd.future.set_exception(e)
+
+        # Step active teleop controllers (other arms)
+        with self._teleop_lock:
+            entries = list(self._teleop_entries)
+        for controller, panel in entries:
+            if controller.is_active:
+                try:
+                    state = controller.step()
+                    if panel is not None:
+                        panel._update_status(state)
+                except Exception as e:
+                    logger.warning("Teleop step error during yield: %s", e)
+                    controller.deactivate()
+                    if panel is not None:
+                        panel._on_teleop_error()
+
+        # Sync viewer (teleop + trajectory both updated state)
+        if self._viewer_sync_fn is not None:
+            try:
+                self._viewer_sync_fn()
+            except Exception:
+                pass
 
     # -- Teleop registration (called from viser callbacks) -------------------
 
