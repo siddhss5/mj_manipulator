@@ -401,6 +401,21 @@ class SimContext:
                 executor.set_position(position)
                 executor.step()
 
+    def set_cartesian_target(
+        self,
+        arm_name: str,
+        position: np.ndarray,
+        velocity: np.ndarray | None = None,
+    ) -> None:
+        """Set reactive control targets without stepping physics.
+
+        Used during cooperative yielding: teleop sets targets on its arm,
+        then the trajectory's step() applies all arms in one mj_step.
+        """
+        position = np.asarray(position)
+        if self._controller is not None:
+            self._controller.set_arm_reactive_target(arm_name, position, velocity)
+
     def sync(self) -> None:
         """Synchronize state with simulation (mj_forward + viewer sync)."""
         if self._event_loop is not None:

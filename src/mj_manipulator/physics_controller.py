@@ -255,6 +255,31 @@ class PhysicsController:
 
         self._step_physics()
 
+    def set_arm_reactive_target(
+        self,
+        arm_name: str,
+        position: np.ndarray,
+        velocity: np.ndarray | None = None,
+    ) -> None:
+        """Set reactive control targets for one arm without stepping physics.
+
+        Used during cooperative yielding: teleop sets its targets, then
+        the trajectory's step() applies all arms' targets in one mj_step.
+
+        Args:
+            arm_name: Which arm to control.
+            position: Target joint positions.
+            velocity: Target joint velocities for feedforward.
+        """
+        if arm_name not in self._arms:
+            raise ValueError(f"Unknown arm: {arm_name}")
+
+        state = self._arms[arm_name]
+        state.target_position = np.asarray(position).copy()
+        state.target_velocity = (
+            np.asarray(velocity).copy() if velocity is not None else np.zeros(len(state.actuator_ids))
+        )
+
     def step_reactive(
         self,
         arm_name: str,
@@ -272,14 +297,9 @@ class PhysicsController:
             position: Target joint positions.
             velocity: Target joint velocities for feedforward.
         """
-        if arm_name not in self._arms:
-            raise ValueError(f"Unknown arm: {arm_name}")
+        self.set_arm_reactive_target(arm_name, position, velocity)
 
         state = self._arms[arm_name]
-        state.target_position = np.asarray(position).copy()
-        state.target_velocity = (
-            np.asarray(velocity).copy() if velocity is not None else np.zeros(len(state.actuator_ids))
-        )
 
         # Reactive arm: small lookahead
         reactive_lookahead = 2.0 * self.control_dt

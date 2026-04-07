@@ -197,12 +197,17 @@ class TeleopController:
 
     # -- Control loop ---------------------------------------------------------
 
-    def step(self) -> TeleopState:
+    def step(self, step_physics: bool = True) -> TeleopState:
         """Execute one teleop control cycle.
 
         Reads the latest input, computes joint targets, and steps the arm
         via the ExecutionContext. Call this from the main control loop
         (e.g., Viser's ``on_sync`` at ~30 Hz).
+
+        Args:
+            step_physics: If True, step physics via step_cartesian().
+                If False, only set targets (used during cooperative
+                yielding when a trajectory is stepping physics).
 
         Returns:
             Current TeleopState after this step.
@@ -235,9 +240,9 @@ class TeleopController:
         prev_state = self._state
 
         if mode == "pose" and pose is not None:
-            self._state = self._step_pose(pose)
+            self._state = self._step_pose(pose, step_physics=step_physics)
         elif mode == "twist" and twist is not None:
-            self._state = self._step_twist(twist)
+            self._state = self._step_twist(twist, step_physics=step_physics)
         else:
             self._state = TeleopState.IDLE
 
@@ -364,7 +369,7 @@ class TeleopController:
 
     # -- Internal: safety check -----------------------------------------------
 
-    def _check_and_commit(self, q_target: np.ndarray) -> TeleopState:
+    def _check_and_commit(self, q_target: np.ndarray, step_physics: bool = True) -> TeleopState:
         """Check collision safety and commit joint targets.
 
         Shared by both pose and twist paths. Applies the safety mode:
@@ -373,6 +378,13 @@ class TeleopController:
 
         Checks both per-arm collisions (forked env) and arm-arm
         collisions (live data via is_arm_in_collision).
+
+        Args:
+            q_target: Target joint positions after IK.
+            step_physics: If True, step physics via step_cartesian().
+                If False, only set targets via set_cartesian_target()
+                (used during cooperative yielding when another arm's
+                trajectory is already stepping physics).
         """
         mode = self._config.safety_mode
         in_collision = False
@@ -404,7 +416,10 @@ class TeleopController:
         qd = (q_target - q_current) / max(dt, 1e-6)
 
         arm_name = self._arm.config.name
-        self._ctx.step_cartesian(arm_name, q_target, qd)
+        if step_physics:
+            self._ctx.step_cartesian(arm_name, q_target, qd)
+        else:
+            self._ctx.set_cartesian_target(arm_name, q_target, qd)
 
         if in_collision:
             return TeleopState.TRACKING_COLLISION
@@ -488,7 +503,7 @@ class TeleopController:
 
     # -- Internal: pose path --------------------------------------------------
 
-    def _step_pose(self, pose: np.ndarray) -> TeleopState:
+    def _step_pose(self, pose: np.ndarray, step_physics: bool = True) -> TeleopState:
         """IK-based pose tracking."""
         ik = self._arm.ik_solver
         if ik is None:
@@ -503,7 +518,7 @@ class TeleopController:
         if q_best is None:
             return TeleopState.UNREACHABLE
 
-        return self._check_and_commit(q_best)
+        return self._check_and_commit(q_best, step_physics=step_physics)
 
     def _pick_closest(
         self,
@@ -532,7 +547,7 @@ class TeleopController:
 
     # -- Internal: twist path -------------------------------------------------
 
-    def _step_twist(self, twist: np.ndarray) -> TeleopState:
+    def _step_twist(self, twist: np.ndarray, step_physics: bool = True) -> TeleopState:
         """CartesianController-based twist tracking."""
         ctrl = self._get_cart_ctrl()
         result = ctrl.step(twist, dt=self._config.twist_dt)
@@ -542,7 +557,7 @@ class TeleopController:
 
         # CartesianController wrote to data.qpos — read the new positions
         q_new = self._arm.get_joint_positions()
-        return self._check_and_commit(q_new)
+        return self._check_and_commit(q_new, step_physics=step_physics)
 
     def _get_cart_ctrl(self):
         """Lazily create CartesianController for twist input."""
