@@ -381,7 +381,11 @@ class SimContext:
                     )
                     return False
                 self._ownership.acquire(entity, OwnerKind.TRAJECTORY, traj)
-                abort_fn = lambda e=entity: self._ownership.is_aborted(e)
+
+                def _make_abort_fn(e=entity):
+                    return self._ownership.is_aborted(e)
+
+                abort_fn = _make_abort_fn
             elif self._abort_fn is not None:
                 abort_fn = self._abort_fn
 
