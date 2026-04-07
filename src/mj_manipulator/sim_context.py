@@ -360,7 +360,7 @@ class SimContext:
             if entity is None:
                 raise ValueError("Trajectory has no entity set")
 
-            # Build per-arm abort function
+            # Build per-arm/entity abort function
             abort_fn = None
             if self._ownership is not None:
                 abort_fn = lambda e=entity: self._ownership.is_aborted(e)
