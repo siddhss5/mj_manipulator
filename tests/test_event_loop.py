@@ -179,6 +179,46 @@ class TestTickDrivenBimanual:
         assert not future2.done()  # still running
 
 
+    def test_preempt_aborts_runner_same_tick(self, loop, two_arm_controller):
+        """Preempt sets abort, runner sees it on the same tick before command runs."""
+        ctrl = two_arm_controller
+        loop.set_controller(ctrl)
+        registry = OwnershipRegistry(["arm1", "arm2"])
+
+        positions = np.array([[0.0, 0.0], [0.1, 0.1], [0.2, 0.2],
+                              [0.3, 0.3], [0.4, 0.4]])
+        traj = make_trajectory(positions, entity="arm1")
+
+        # Acquire ownership for trajectory (as _execute_tick_driven does)
+        registry.acquire("arm1", OwnerKind.TRAJECTORY, traj)
+        future = ctrl.start_trajectory(
+            "arm1", traj, abort_fn=lambda: registry.is_aborted("arm1")
+        )
+
+        loop.tick()  # advance waypoint 0
+        assert not future.done()
+
+        # Simulate what _activate_teleop does: preempt (sets abort),
+        # then submit _do_activate (clears abort)
+        teleop_owner = object()
+        registry.preempt("arm1", OwnerKind.TELEOP, teleop_owner)
+        cleared = []
+
+        def do_activate():
+            registry.clear_abort("arm1")
+            cleared.append(True)
+
+        loop.submit(do_activate)
+
+        # Single tick: advance_all sees abort FIRST, then command clears it
+        loop.tick()
+
+        assert future.done()
+        assert future.result() is False  # runner aborted
+        assert cleared == [True]  # command also ran
+        assert not registry.is_aborted("arm1")  # abort cleared for next use
+
+
 class TestBackgroundThreadExecution:
     """Test that background threads can submit work and block on results."""
 

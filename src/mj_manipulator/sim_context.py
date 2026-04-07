@@ -360,43 +360,53 @@ class SimContext:
             if entity is None:
                 raise ValueError("Trajectory has no entity set")
 
-            # Build per-arm/entity abort function
+            # Acquire ownership and build per-arm/entity abort function
             abort_fn = None
             if self._ownership is not None:
+                from mj_manipulator.ownership import OwnerKind
+
+                self._ownership.acquire(entity, OwnerKind.TRAJECTORY, traj)
                 abort_fn = lambda e=entity: self._ownership.is_aborted(e)
             elif self._abort_fn is not None:
                 abort_fn = self._abort_fn
 
-            if on_owner_thread:
-                # We ARE the tick pump — start runner and drive tick() directly
-                future = self._controller.start_trajectory(entity, traj, abort_fn)
-                control_dt = self._controller.control_dt
-                realtime = self._controller.viewer is not None
-                t_next = time.monotonic() + control_dt
-                while not future.done():
-                    self._event_loop.tick()
-                    if realtime:
-                        now = time.monotonic()
-                        if t_next > now:
-                            time.sleep(t_next - now)
-                        t_next = now + control_dt
-                if not future.result():
-                    return False
-            else:
-                # Background thread — submit start, block on future while
-                # the inputhook pumps tick() on the owner thread
-                runner_future: Future[bool] = Future()
+            try:
+                if on_owner_thread:
+                    # We ARE the tick pump — start runner and drive tick() directly
+                    future = self._controller.start_trajectory(entity, traj, abort_fn)
+                    control_dt = self._controller.control_dt
+                    realtime = self._controller.viewer is not None
+                    t_next = time.monotonic() + control_dt
+                    while not future.done():
+                        self._event_loop.tick()
+                        if realtime:
+                            now = time.monotonic()
+                            if t_next > now:
+                                time.sleep(t_next - now)
+                            t_next = now + control_dt
+                    if not future.result():
+                        return False
+                else:
+                    # Background thread — submit start, block on future while
+                    # the inputhook pumps tick() on the owner thread
+                    runner_future: Future[bool] = Future()
 
-                def _start(t=traj, af=abort_fn, rf=runner_future):
-                    try:
-                        f = self._controller.start_trajectory(t.entity, t, af)
-                        f.add_done_callback(lambda done_f: rf.set_result(done_f.result()))
-                    except Exception as e:
-                        rf.set_exception(e)
+                    def _start(t=traj, af=abort_fn, rf=runner_future):
+                        try:
+                            f = self._controller.start_trajectory(t.entity, t, af)
+                            f.add_done_callback(lambda done_f: rf.set_result(done_f.result()))
+                        except Exception as e:
+                            rf.set_exception(e)
 
-                self._event_loop.submit(_start)
-                if not runner_future.result():
-                    return False
+                    self._event_loop.submit(_start)
+                    if not runner_future.result():
+                        return False
+            finally:
+                # Release ownership (unless preempted — owner already changed)
+                if self._ownership is not None:
+                    kind, owner = self._ownership.owner_of(entity)
+                    if owner is traj:
+                        self._ownership.release(entity, traj)
 
         return True
 

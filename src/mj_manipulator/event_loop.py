@@ -164,7 +164,12 @@ class PhysicsEventLoop:
 
     def _tick_driven(self) -> None:
         """Tick-driven mode: controller owns physics, runners provide targets."""
-        # 1. Process ALL queued commands (they're fast now — just start runners)
+        # 1. Advance active trajectory runners (writes targets)
+        #    Runs BEFORE commands so that abort flags set by preempt()
+        #    are seen before _do_activate clears them.
+        self._controller.advance_all()
+
+        # 2. Process ALL queued commands (they're fast — start runners, activate teleop)
         while True:
             try:
                 cmd = self._queue.get_nowait()
@@ -175,9 +180,6 @@ class PhysicsEventLoop:
                 cmd.future.set_result(result)
             except Exception as e:
                 cmd.future.set_exception(e)
-
-        # 2. Advance active trajectory runners (writes targets)
-        self._controller.advance_all()
 
         # 3. Step active teleop controllers (writes targets, no mj_step)
         with self._teleop_lock:
