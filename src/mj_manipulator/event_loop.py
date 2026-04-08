@@ -74,6 +74,7 @@ class PhysicsEventLoop:
         self._controller: PhysicsController | None = None
         self._idle_step_fn: Callable[[], None] | None = None
         self._viewer_sync_fn: Callable[[], None] | None = None
+        self._in_tick: bool = False  # reentrancy guard
 
     # -- Controller setup (called from SimContext.__enter__) ------------------
 
@@ -157,10 +158,16 @@ class PhysicsEventLoop:
         2. Step active teleop controllers
         3. Idle physics step
         """
-        if self._controller is not None:
-            self._tick_driven()
-        else:
-            self._tick_legacy()
+        if self._in_tick:
+            return  # prevent recursion (e.g. teleop → step_cartesian → tick)
+        self._in_tick = True
+        try:
+            if self._controller is not None:
+                self._tick_driven()
+            else:
+                self._tick_legacy()
+        finally:
+            self._in_tick = False
 
     def _tick_driven(self) -> None:
         """Tick-driven mode: controller owns physics, runners provide targets."""
