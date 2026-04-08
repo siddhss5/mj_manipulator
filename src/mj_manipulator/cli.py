@@ -125,19 +125,6 @@ class _SimpleRobot(RobotBase):
         return super().grasp_source
 
 
-def _create_scene_config(objects: dict) -> str:
-    """Create a temp scene_config.yaml from objects dict."""
-    import tempfile
-
-    import yaml
-
-    config = {"objects": {obj_type: {"count": count} for obj_type, count in objects.items()}}
-    f = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
-    yaml.dump(config, f)
-    f.close()
-    return f.name
-
-
 def _setup_franka(objects):
     """Set up Franka Panda with optional prl_assets objects."""
     import mujoco
@@ -154,28 +141,18 @@ def _setup_franka(objects):
         print("Run ./setup.sh from the robot-code workspace to clone mujoco_menagerie.")
         sys.exit(1)
 
-    # Add EE site to the Franka scene, save to temp file in same dir
-    # so mesh paths resolve correctly
+    # Assemble robot via MjSpec, then use Environment.from_spec()
+    # which handles objects + registry with native path resolution.
     spec = mujoco.MjSpec.from_file(str(scene_path))
     add_franka_ee_site(spec)
-
-    import tempfile
-
-    robot_xml = tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False, dir=str(scene_path.parent))
-    robot_xml.write(spec.to_xml())
-    robot_xml.close()
 
     if objects:
         from prl_assets import OBJECTS_DIR
 
-        scene_config = _create_scene_config(objects)
-        env = Environment(
-            base_scene_xml=robot_xml.name,
-            objects_dir=str(OBJECTS_DIR),
-            scene_config_yaml=scene_config,
-        )
+        env = Environment.from_spec(spec, objects_dir=str(OBJECTS_DIR), scene_config=objects)
     else:
-        env = Environment(base_scene_xml=robot_xml.name)
+        model = spec.compile()
+        env = Environment.from_model(model)
 
     gm = GraspManager(env.model, env.data)
     gripper = FrankaGripper(env.model, env.data, "franka", grasp_manager=gm)
