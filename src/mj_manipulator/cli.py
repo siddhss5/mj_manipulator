@@ -286,7 +286,7 @@ def _scatter_objects(env, objects: dict):
         geo = gp.get("type")
         if geo in ("open_box", "tote"):
             # Place container to the side
-            env.registry.activate(obj_type, pos=[-0.3, 0.0, 0.0])
+            env.registry.activate(obj_type, pos=[-0.3, 0.0, 0.12])
             mujoco.mj_forward(env.model, env.data)
             continue
 
