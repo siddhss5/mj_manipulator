@@ -66,6 +66,9 @@ Arm:
   robot.arms["franka"].get_ee_pose()
   robot.arms["franka"].get_joint_positions()
 
+Scene:
+  reset()                           — re-scatter objects, arm to ready
+
 Teleop:
   Click "Activate" in the viser viewer
 
@@ -83,7 +86,7 @@ IPython:
         physics=args.physics,
         viser=not args.no_viser,
         robot_name="Franka",
-        extra_ns={"commands": commands},
+        extra_ns={"commands": commands, "reset": robot.reset},
     )
 
 
@@ -107,6 +110,59 @@ class _SimpleRobot(RobotBase):
         )
         self._env = env
         self._has_objects = has_objects
+        self._objects_config = None  # set externally after creation
+
+    def reset(self):
+        """Reset scene: release objects, return arm home, re-scatter."""
+        import mujoco
+
+        self.request_abort()
+        self.clear_abort()
+
+        # Release any held objects
+        for arm_name, arm in self.arms.items():
+            if arm.gripper and arm.gripper.is_holding:
+                if self._context is not None:
+                    self._context.arm(arm_name).release()
+
+        # Clear grasp manager state
+        for arm_name in list(self.arms.keys()):
+            for obj in list(self.grasp_manager.get_grasped_by(arm_name)):
+                self.grasp_manager.mark_released(obj)
+                self.grasp_manager.detach_object(obj)
+
+        # Hide all objects
+        if self._env.registry is not None:
+            for obj_type in list(self._env.registry.objects.keys()):
+                for name in list(self._env.registry.objects[obj_type]["instances"]):
+                    if self._env.registry.is_active(name):
+                        self._env.registry.hide(name)
+
+        # Reset arm to home
+        ready = self.named_poses.get("ready", {})
+        for arm_name, arm in self.arms.items():
+            if arm_name in ready:
+                for i, idx in enumerate(arm.joint_qpos_indices):
+                    self.data.qpos[idx] = ready[arm_name][i]
+            if arm.gripper:
+                arm.gripper.kinematic_open()
+                if arm.gripper.actuator_id is not None:
+                    self.data.ctrl[arm.gripper.actuator_id] = arm.gripper.ctrl_open
+
+        mujoco.mj_forward(self.model, self.data)
+
+        # Re-scatter objects
+        if self._objects_config and self._env.registry is not None:
+            all_objects = dict(self._objects_config)
+            all_objects["yellow_tote"] = 1
+            _scatter_objects(self._env, all_objects)
+
+        if self._context is not None:
+            self._context.sync()
+            if hasattr(self._context, "hold"):
+                self._context.hold()
+
+        print("Scene reset.")
 
     @property
     def grasp_source(self):
@@ -192,7 +248,9 @@ def _setup_franka(objects):
         all_objects["yellow_tote"] = 1
         _scatter_objects(env, all_objects)
 
-    return _SimpleRobot(env, arm, FRANKA_HOME, has_objects=bool(objects))
+    robot = _SimpleRobot(env, arm, FRANKA_HOME, has_objects=bool(objects))
+    robot._objects_config = objects if objects else None
+    return robot
 
 
 def _scatter_objects(env, objects: dict):
