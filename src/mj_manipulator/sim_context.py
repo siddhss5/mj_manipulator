@@ -496,8 +496,12 @@ class SimContext:
         position = np.asarray(position)
 
         if self._event_loop is not None and self._controller is not None:
-            # Tick-driven: set targets only, tick() will step physics
+            # Tick-driven: set targets and step physics.
+            # On the owner thread (e.g. CartesianMove inside a BT tree),
+            # we must pump tick() ourselves — nobody else will.
             self._event_loop.run_on_physics_thread(lambda: self._set_reactive_target(arm_name, position, velocity))
+            if threading.get_ident() == self._event_loop._owner_thread:
+                self._event_loop.tick()
         elif self._event_loop is not None:
             self._event_loop.run_on_physics_thread(lambda: self._step_cartesian_impl(arm_name, position, velocity))
         else:
