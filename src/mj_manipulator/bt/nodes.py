@@ -387,9 +387,18 @@ class GeneratePlaceTSRs(_ManipulationNode):
         destination = self.bb.get(self._key("destination"))
         object_name = self.bb.get(self._key("object_name"))
 
-        # Resolve destinations
+        # Resolve destinations — handle type names (e.g. "recycle_bin")
+        # by matching against all available destinations
         if destination is not None:
-            destinations = [destination]
+            all_dests = grasp_source.get_place_destinations(object_name)
+            # Check if it's an exact match (instance name like "recycle_bin_0")
+            if destination in all_dests:
+                destinations = [destination]
+            else:
+                # Type name — find all instances matching this prefix
+                destinations = [d for d in all_dests if d.startswith(destination)]
+                if not destinations:
+                    destinations = [destination]  # pass through, let get_placements handle it
         else:
             destinations = grasp_source.get_place_destinations(object_name)
 

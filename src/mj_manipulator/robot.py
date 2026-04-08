@@ -130,6 +130,12 @@ class RobotBase:
     def _active_context(self, ctx):
         self._context = ctx
 
+    def __getitem__(self, arm_name: str) -> _ArmScope:
+        """Get a per-arm accessor: robot["franka"].get_ee_pose()"""
+        if arm_name not in self.arms:
+            raise KeyError(f"Unknown arm: {arm_name}. Available: {list(self.arms.keys())}")
+        return _ArmScope(self, arm_name)
+
     # -- Execution context -----------------------------------------------------
 
     def sim(self, *, physics=True, headless=False, viewer=None, event_loop=None):
@@ -208,6 +214,84 @@ class RobotBase:
         pose[:3, :3] = self.data.xmat[bid].reshape(3, 3)
         pose[:3, 3] = self.data.xpos[bid]
         return pose
+
+    def forward(self):
+        """Run mj_forward and sync viewer."""
+        mujoco.mj_forward(self.model, self.data)
+        if self._context is not None:
+            self._context.sync()
+
+    def check_collisions(self, arm_name: str | None = None):
+        """Print collision contacts for one or all arms.
+
+        Args:
+            arm_name: Specific arm, or None for all arms.
+        """
+        arms_to_check = [arm_name] if arm_name else list(self.arms.keys())
+        for name in arms_to_check:
+            arm = self.arms[name]
+            arm.check_collisions()
+
+
+class _ArmScope:
+    """Per-arm accessor with tab-completable methods.
+
+    Returned by ``robot[arm_name]``. Provides scoped primitives
+    (pickup, place, go_home) and delegates attribute access to the
+    underlying Arm.
+
+    Usage::
+
+        robot["franka"].get_ee_pose()
+        robot["franka"].pickup("can_0")
+        robot["franka"].check_collisions()
+    """
+
+    def __init__(self, robot: RobotBase, arm_name: str):
+        self._robot = robot
+        self._arm_name = arm_name
+
+    @property
+    def _arm(self):
+        return self._robot.arms[self._arm_name]
+
+    def __getattr__(self, name):
+        return getattr(self._arm, name)
+
+    def __dir__(self):
+        arm_attrs = dir(self._arm)
+        own = ["pickup", "place", "go_home", "close", "open", "check_collisions"]
+        return sorted(set(arm_attrs + own))
+
+    def pickup(self, target=None, **kwargs):
+        """Pick up an object with this arm."""
+        return self._robot.pickup(target, arm=self._arm_name, **kwargs)
+
+    def place(self, destination=None, **kwargs):
+        """Place held object with this arm."""
+        return self._robot.place(destination, arm=self._arm_name, **kwargs)
+
+    def go_home(self, **kwargs):
+        """Return this arm to ready."""
+        return self._robot.go_home(arm=self._arm_name, **kwargs)
+
+    def close(self):
+        """Close gripper."""
+        if self._robot._context is not None:
+            return self._robot._context.arm(self._arm_name).grasp()
+        return None
+
+    def open(self):
+        """Open gripper."""
+        if self._robot._context is not None:
+            self._robot._context.arm(self._arm_name).release()
+
+    def check_collisions(self):
+        """Print collision contacts for this arm."""
+        self._arm.check_collisions()
+
+    def __repr__(self):
+        return f"ArmScope({self._arm_name})"
 
 
 class _SimContextWrapper:
