@@ -69,7 +69,7 @@ def pickup(ns: str) -> py_trees.composites.Sequence:
     set_distance = py_trees.behaviours.SetBlackboardVariable(
         name="set_lift_distance",
         variable_name=f"{ns}/distance",
-        variable_value=0.05,
+        variable_value=0.15,
         overwrite=True,
     )
 
