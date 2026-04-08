@@ -48,7 +48,68 @@ def _tick_tree(root: py_trees.behaviour.Behaviour, verbose: bool = False) -> boo
     if verbose:
         print(py_trees.display.ascii_tree(root, show_status=True))
 
+    if root.status != Status.SUCCESS:
+        tip = root.tip()
+        if tip is not None and tip.feedback_message and tip.feedback_message != "Aborted":
+            logger.warning("%s: %s", tip.name, tip.feedback_message)
+
     return root.status == Status.SUCCESS
+
+
+def _maybe_hide_in_container(robot, ns: str, destination: str | None, held_name: str) -> None:
+    """Hide object if it was placed into a container (bin, tote).
+
+    Checks the prl_assets metadata for the destination. If it's a container
+    type (open_box, tote), hides the object from the scene.
+    """
+    import re
+
+    # Resolve destination from blackboard if not specified
+    resolved = destination
+    if resolved is None:
+        try:
+            _bb = py_trees.blackboard.Client(name=f"place_resolve{ns}")
+            _bb.register_key(key=f"{ns}/tsr_to_destination", access=Access.READ)
+            _bb.register_key(key=f"{ns}/goal_tsr_index", access=Access.READ)
+            mapping = _bb.get(f"{ns}/tsr_to_destination")
+            idx = _bb.get(f"{ns}/goal_tsr_index")
+            if mapping and idx is not None and idx < len(mapping):
+                resolved = mapping[idx]
+        except (KeyError, RuntimeError):
+            pass
+
+    if resolved is None or resolved == "worktop":
+        return
+
+    # Check if destination is a container type
+    try:
+        from asset_manager import AssetManager
+        from prl_assets import OBJECTS_DIR
+
+        m = re.match(r"^(.+?)_(\d+)$", resolved)
+        dest_type = m.group(1) if m else resolved
+        assets = AssetManager(str(OBJECTS_DIR))
+        gp = assets.get(dest_type)["geometric_properties"]
+        if gp.get("type") not in ("open_box", "tote"):
+            return
+    except (KeyError, TypeError, ImportError):
+        return
+
+    # Hide the object
+    env = getattr(robot, "_env", None)
+    if env is not None and hasattr(env, "registry") and env.registry is not None:
+        if env.registry.is_active(held_name):
+            env.registry.hide(held_name)
+            import mujoco
+
+            mujoco.mj_forward(robot.model, robot.data)
+
+
+def _set_hud_action(robot, arm_name: str, text: str) -> None:
+    """Update HUD status for an arm (no-op if no HUD)."""
+    hud = getattr(robot, "_status_hud", None)
+    if hud is not None:
+        hud.set_action(arm_name, text)
 
 
 def _arm_preempted(robot, arm_name: str) -> bool:
@@ -182,9 +243,14 @@ def _pickup_inner(robot, ctx, target, *, arm, verbose) -> bool:
         bb.register_key(key=f"{ns}/object_name", access=Access.WRITE)
         bb.set(f"{ns}/object_name", target)
 
+        desc = target or "any"
+        _set_hud_action(robot, side, f"⟳ pickup({desc})")
         tree = full_pickup(ns)
         if _tick_tree(tree, verbose=verbose):
+            _set_hud_action(robot, side, f"✓ pickup({desc})")
             return True
+
+        _set_hud_action(robot, side, f"✗ pickup({desc})")
 
         # Stop if abort or this arm was preempted (e.g. teleop)
         if robot.is_abort_requested() or _arm_preempted(robot, side):
@@ -260,12 +326,21 @@ def _place_inner(robot, ctx, destination, *, arm, verbose) -> bool:
         held_name = arm_obj.gripper.held_object
     bb.set(f"{ns}/object_name", held_name)
 
+    desc = destination or "auto"
+    _set_hud_action(robot, arm, f"⟳ place({desc})")
     tree = full_place(ns)
-    if _tick_tree(tree, verbose=verbose):
-        return True
+    ok = _tick_tree(tree, verbose=verbose)
 
-    logger.warning("Place failed for destination '%s'", destination)
-    return False
+    if ok:
+        _set_hud_action(robot, arm, f"✓ place({desc})")
+        # Hide object if placed in a container (simulates disposal)
+        if held_name:
+            _maybe_hide_in_container(robot, ns, destination, held_name)
+    else:
+        _set_hud_action(robot, arm, f"✗ place({desc})")
+        logger.warning("Place failed for destination '%s'", destination)
+
+    return ok
 
 
 def go_home(
@@ -317,18 +392,48 @@ def _go_home_inner(robot, ctx, *, arm, verbose) -> bool:
         if side not in ready_poses:
             continue
         arm_obj = robot.arms[side]
+
+        def abort_fn(s=side):
+            return robot.is_abort_requested() or _arm_preempted(robot, s)
+
         goal = np.array(ready_poses[side])
 
-        abort_fn = robot.is_abort_requested
-        path = arm_obj.plan_to_configuration(goal, abort_fn=abort_fn)
-        if path is None:
-            logger.warning("go_home: planning failed for %s", side)
-            all_ok = False
-            continue
+        try:
+            path = arm_obj.plan_to_configuration(goal, abort_fn=abort_fn)
+        except Exception as e:
+            logger.warning("go_home %s: plan failed: %s", side, e)
+            path = None
 
-        traj = arm_obj.retime(path)
-        if not ctx.execute(traj):
-            logger.warning("go_home: execution failed for %s", side)
+        if path is None:
+            # Retract up first, then retry
+            logger.warning("go_home %s: retract up and retry", side)
+            from mj_manipulator.cartesian import CartesianController
+
+            arm_name = arm_obj.config.name
+
+            def _step_fn(q, qd):
+                ctx.step_cartesian(arm_name, q, qd)
+
+            ctrl = CartesianController.from_arm(arm_obj, step_fn=_step_fn)
+            ctrl.move(
+                np.array([0.0, 0.0, 0.10, 0.0, 0.0, 0.0]),
+                dt=ctx.control_dt,
+                max_distance=0.10,
+                stop_condition=abort_fn,
+            )
+            try:
+                path = arm_obj.plan_to_configuration(goal, abort_fn=abort_fn)
+            except Exception as e:
+                logger.warning("go_home %s: retry failed: %s", side, e)
+                path = None
+
+        if path is not None:
+            traj = arm_obj.retime(path)
+            if not ctx.execute(traj):
+                logger.warning("go_home: execution failed for %s", side)
+                all_ok = False
+        else:
+            logger.warning("go_home: could not plan %s to ready", side)
             all_ok = False
 
     ctx.sync()

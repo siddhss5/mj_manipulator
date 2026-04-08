@@ -162,6 +162,15 @@ def start_console(
                     panel.setup(gui, viser_viewer)
                     viser_viewer._panels.append(panel)
 
+        # -- Status HUD ------------------------------------------------------------
+        if viser and viser_viewer is not None:
+            from mj_manipulator.status_hud import StatusHud
+
+            status_hud = StatusHud(robot, mode)
+            robot._status_hud = status_hud
+            viser_viewer._panels.append(status_hud)
+            status_hud.setup(viser_viewer._server.gui, viser_viewer)
+
         # -- Robot-specific panels via callback --------------------------------
         if panel_setup is not None and viser_viewer is not None and tabs is not None:
             panel_setup(
