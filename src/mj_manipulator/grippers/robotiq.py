@@ -197,6 +197,8 @@ class RobotiqGripper(_BaseGripper):
         grasp_manager: Optional grasp state tracker.
     """
 
+    hand_type: str = "robotiq"
+
     def __init__(
         self,
         model: mujoco.MjModel,

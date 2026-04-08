@@ -269,7 +269,7 @@ class CartesianMove(_ManipulationNode):
             ctx.step_cartesian(arm_name, q, qd)
 
         ctrl = CartesianController.from_arm(arm, step_fn=step_fn)
-        ctrl.move(twist, dt=0.004, max_distance=distance, stop_condition=abort_fn)
+        ctrl.move(twist, dt=ctx.control_dt, max_distance=distance, stop_condition=abort_fn)
         return Status.SUCCESS
 
 

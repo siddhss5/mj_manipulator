@@ -54,6 +54,10 @@ _FINGER_CLOSED = 0.0  # Fully closed position
 class FrankaGripper(_BaseGripper):
     """Franka Emika Panda hand gripper.
 
+    .. attribute:: hand_type
+       TSR hand model identifier. Used by GraspSource to select
+       the correct grasp templates (FrankaHand vs Robotiq2F140).
+
     The Franka hand is a simple parallel jaw gripper with two prismatic
     finger joints driven by a tendon actuator. In kinematic mode, the
     fingers are linearly interpolated between open and closed positions.
@@ -68,6 +72,8 @@ class FrankaGripper(_BaseGripper):
         prefix: MuJoCo name prefix for all gripper elements.
         grasp_manager: Optional grasp state tracker.
     """
+
+    hand_type: str = "franka"
 
     def __init__(
         self,
