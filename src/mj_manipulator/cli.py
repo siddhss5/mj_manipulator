@@ -149,6 +149,15 @@ def _setup_franka(objects):
     if objects:
         from prl_assets import OBJECTS_DIR
 
+        # Add a table for objects to sit on
+        table = spec.worldbody.add_body()
+        table.name = "table"
+        table.pos = [0.45, 0.0, 0.23]
+        g = table.add_geom()
+        g.type = mujoco.mjtGeom.mjGEOM_BOX
+        g.size = [0.15, 0.15, 0.23]
+        g.rgba = [0.4, 0.3, 0.2, 1.0]
+
         env = Environment.from_spec(spec, objects_dir=str(OBJECTS_DIR), scene_config=objects)
     else:
         model = spec.compile()
@@ -166,4 +175,67 @@ def _setup_franka(objects):
         env.data.qpos[idx] = FRANKA_HOME[i]
     mujoco.mj_forward(env.model, env.data)
 
+    # Activate and scatter objects on a table in front of the robot
+    if objects and env.registry is not None:
+        _scatter_objects(env, objects)
+
     return _SimpleRobot(env, arm, FRANKA_HOME, has_objects=bool(objects))
+
+
+def _scatter_objects(env, objects: dict):
+    """Activate objects and place them on a table in front of the robot."""
+    import mujoco
+    import numpy as np
+    from asset_manager import AssetManager
+    from prl_assets import OBJECTS_DIR
+    from tsr.placement import StablePlacer
+
+    assets = AssetManager(str(OBJECTS_DIR))
+
+    # Table: 30x30cm, 46cm tall, centered at (0.45, 0, 0.46)
+    table_surface = np.eye(4)
+    table_surface[:3, 3] = [0.45, 0.0, 0.46]
+    placer = StablePlacer(0.12, 0.12)
+
+    placed_positions = []
+    for obj_type, count in objects.items():
+        if isinstance(count, dict):
+            count = count.get("count", 1)
+        try:
+            gp = assets.get(obj_type)["geometric_properties"]
+        except (KeyError, TypeError):
+            continue
+
+        geo = gp.get("type")
+        if geo == "cylinder":
+            templates = placer.place_cylinder(gp["radius"], gp["height"])
+        elif geo == "box":
+            templates = placer.place_box(gp["size"][0], gp["size"][1], gp["size"][2])
+        else:
+            continue
+
+        if not templates:
+            continue
+
+        for _ in range(count):
+            tsr = templates[0].instantiate(table_surface)
+            # Sample a non-colliding position
+            for _attempt in range(50):
+                T = tsr.sample()
+                pos = T[:3, 3]
+                min_sep = 0.06
+                if all(np.linalg.norm(pos[:2] - np.array(p[:2])) > min_sep for p in placed_positions):
+                    break
+
+            name = env.registry.activate(obj_type, pos=list(pos))
+            placed_positions.append(list(pos))
+
+            # Apply full pose (includes randomized yaw)
+            body_id = mujoco.mj_name2id(env.model, mujoco.mjtObj.mjOBJ_BODY, name)
+            jnt_id = env.model.body_jntadr[body_id]
+            qpos_adr = env.model.jnt_qposadr[jnt_id]
+            quat = np.zeros(4)
+            mujoco.mju_mat2Quat(quat, T[:3, :3].flatten())
+            env.data.qpos[qpos_adr + 3 : qpos_adr + 7] = quat
+
+    mujoco.mj_forward(env.model, env.data)
