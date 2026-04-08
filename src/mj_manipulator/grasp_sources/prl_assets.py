@@ -323,7 +323,7 @@ class PrlAssetsGraspSource:
         except ValueError:
             return []
 
-        outer = gp["outer_dimensions"]
+        outer = gp["outer_size"]
         wall = gp.get("wall_thickness", 0.003)
         margin = policy.get("drop_zone_margin", 0.05)
 
