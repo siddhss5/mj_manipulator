@@ -35,6 +35,10 @@ geodude-assets = { workspace = true }
 bt = [
     "py_trees>=2.2",
 ]
+console = [
+    "ipython>=8.0",
+    "mj-manipulator[bt]",
+]
 dev = [
     "pytest",
     "ruff",

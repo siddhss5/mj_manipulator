@@ -311,3 +311,104 @@ class Sync(_ManipulationNode):
         ctx = self.bb.get("/context")
         ctx.sync()
         return Status.SUCCESS
+
+
+class GenerateGrasps(_ManipulationNode):
+    """Generate grasp TSRs using the robot's GraspSource.
+
+    Queries ``grasp_source.get_grasps()`` for the target object(s) and
+    combines all TSRs with a mapping so the Grasp node knows which
+    object was reached.
+
+    Reads: ``{ns}/object_name``, ``{ns}/grasp_source``, ``{ns}/hand_type``
+    Writes: ``{ns}/grasp_tsrs``, ``{ns}/tsr_to_object``
+    """
+
+    def __init__(self, ns: str = "", name: str = "GenerateGrasps"):
+        super().__init__(name, ns)
+        self.bb.register_key(key=self._key("object_name"), access=Access.READ)
+        self.bb.register_key(key=self._key("grasp_source"), access=Access.READ)
+        self.bb.register_key(key=self._key("hand_type"), access=Access.READ)
+        self.bb.register_key(key=self._key("grasp_tsrs"), access=Access.WRITE)
+        self.bb.register_key(key=self._key("tsr_to_object"), access=Access.WRITE)
+
+    def update(self) -> Status:
+        grasp_source = self.bb.get(self._key("grasp_source"))
+        target = self.bb.get(self._key("object_name"))
+        hand_type = self.bb.get(self._key("hand_type"))
+
+        # Resolve objects to grasp
+        if target is not None:
+            objects = [target]
+        else:
+            objects = grasp_source.get_graspable_objects()
+
+        if not objects:
+            self.feedback_message = f"No graspable objects found for '{target}'"
+            return Status.FAILURE
+
+        all_tsrs = []
+        tsr_to_object = []
+        for obj_name in objects:
+            tsrs = grasp_source.get_grasps(obj_name, hand_type)
+            for _ in tsrs:
+                tsr_to_object.append(obj_name)
+            all_tsrs.extend(tsrs)
+
+        if not all_tsrs:
+            self.feedback_message = f"No grasp TSRs generated for {objects}"
+            return Status.FAILURE
+
+        self.bb.set(self._key("grasp_tsrs"), all_tsrs)
+        self.bb.set(self._key("tsr_to_object"), tsr_to_object)
+        return Status.SUCCESS
+
+
+class GeneratePlaceTSRs(_ManipulationNode):
+    """Generate placement TSRs using the robot's GraspSource.
+
+    Queries ``grasp_source.get_placements()`` for the target destination
+    and the currently held object.
+
+    Reads: ``{ns}/destination``, ``{ns}/grasp_source``, ``{ns}/object_name``
+    Writes: ``{ns}/place_tsrs``, ``{ns}/tsr_to_destination``
+    """
+
+    def __init__(self, ns: str = "", name: str = "GeneratePlaceTSRs"):
+        super().__init__(name, ns)
+        self.bb.register_key(key=self._key("destination"), access=Access.READ)
+        self.bb.register_key(key=self._key("grasp_source"), access=Access.READ)
+        self.bb.register_key(key=self._key("object_name"), access=Access.READ)
+        self.bb.register_key(key=self._key("place_tsrs"), access=Access.WRITE)
+        self.bb.register_key(key=self._key("tsr_to_destination"), access=Access.WRITE)
+
+    def update(self) -> Status:
+        grasp_source = self.bb.get(self._key("grasp_source"))
+        destination = self.bb.get(self._key("destination"))
+        object_name = self.bb.get(self._key("object_name"))
+
+        # Resolve destinations
+        if destination is not None:
+            destinations = [destination]
+        else:
+            destinations = grasp_source.get_place_destinations(object_name)
+
+        if not destinations:
+            self.feedback_message = f"No placement destinations for '{destination}'"
+            return Status.FAILURE
+
+        all_tsrs = []
+        tsr_to_dest = []
+        for dest in destinations:
+            tsrs = grasp_source.get_placements(dest, object_name)
+            for _ in tsrs:
+                tsr_to_dest.append(dest)
+            all_tsrs.extend(tsrs)
+
+        if not all_tsrs:
+            self.feedback_message = f"No placement TSRs for destinations {destinations}"
+            return Status.FAILURE
+
+        self.bb.set(self._key("place_tsrs"), all_tsrs)
+        self.bb.set(self._key("tsr_to_destination"), tsr_to_dest)
+        return Status.SUCCESS

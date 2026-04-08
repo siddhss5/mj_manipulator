@@ -46,6 +46,7 @@ from mj_manipulator.protocols import (
     Gripper,
     IKSolver,
 )
+from mj_manipulator.robot import ManipulationRobot
 from mj_manipulator.sim_context import SimArmController, SimContext
 from mj_manipulator.trajectory import Trajectory, create_linear_trajectory
 
@@ -79,6 +80,8 @@ __all__ = [
     # Physics controller (simulation)
     "PhysicsController",
     "ArmPhysicsExecutor",
+    # Robot protocol
+    "ManipulationRobot",
     # Simulation context
     "SimContext",
     "SimArmController",

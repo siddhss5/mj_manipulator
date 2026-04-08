@@ -19,6 +19,8 @@ from mj_manipulator.bt.nodes import (
     CartesianMove,
     CheckNotNearConfig,
     Execute,
+    GenerateGrasps,
+    GeneratePlaceTSRs,
     Grasp,
     PlanToConfig,
     PlanToTSRs,
@@ -27,6 +29,8 @@ from mj_manipulator.bt.nodes import (
     Sync,
 )
 from mj_manipulator.bt.subtrees import (
+    full_pickup,
+    full_place,
     pickup,
     pickup_with_recovery,
     place,
@@ -46,6 +50,8 @@ __all__ = [
     "CartesianMove",
     "CheckNotNearConfig",
     "Sync",
+    "GenerateGrasps",
+    "GeneratePlaceTSRs",
     # Subtree builders
     "plan_and_execute",
     "pickup",
@@ -53,4 +59,6 @@ __all__ = [
     "place",
     "place_with_recovery",
     "recover",
+    "full_pickup",
+    "full_place",
 ]
