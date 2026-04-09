@@ -57,14 +57,9 @@ def _tick_tree(root: py_trees.behaviour.Behaviour, verbose: bool = False) -> boo
 
 
 def _maybe_hide_in_container(robot, ns: str, destination: str | None, held_name: str) -> None:
-    """Hide object if it was placed into a container (bin, tote).
-
-    Checks the prl_assets metadata for the destination. If it's a container
-    type (open_box, tote), hides the object from the scene.
-    """
+    """Hide object if it was placed into a container (bin, tote)."""
     import re
 
-    # Resolve destination from blackboard if not specified
     resolved = destination
     if resolved is None:
         try:
@@ -81,7 +76,6 @@ def _maybe_hide_in_container(robot, ns: str, destination: str | None, held_name:
     if resolved is None or resolved == "worktop":
         return
 
-    # Check if destination is a container type
     try:
         from asset_manager import AssetManager
         from prl_assets import OBJECTS_DIR
@@ -95,7 +89,6 @@ def _maybe_hide_in_container(robot, ns: str, destination: str | None, held_name:
     except (KeyError, TypeError, ImportError):
         return
 
-    # Hide the object
     env = getattr(robot, "_env", None)
     if env is not None and hasattr(env, "registry") and env.registry is not None:
         if env.registry.is_active(held_name):
@@ -112,6 +105,16 @@ def _set_hud_action(robot, arm_name: str, text: str) -> None:
         hud.set_action(arm_name, text)
 
 
+def _sync_viewer(robot) -> None:
+    """Force a viewer sync so HUD updates are visible immediately."""
+    ctx = getattr(robot, "_active_context", None)
+    if ctx is not None and hasattr(ctx, "sync"):
+        try:
+            ctx.sync()
+        except Exception:
+            pass
+
+
 def _arm_preempted(robot, arm_name: str) -> bool:
     """Check if an arm was taken by another controller (e.g. teleop)."""
     ctx = getattr(robot, "_active_context", None)
@@ -124,12 +127,7 @@ def _arm_preempted(robot, arm_name: str) -> bool:
 
 
 def _deactivate_teleop_for_arms(robot, arms: list[str] | None = None) -> None:
-    """Deactivate teleop on specified arms (or all) before a primitive.
-
-    Args:
-        robot: ManipulationRobot instance.
-        arms: Arm names to deactivate, or None for all arms.
-    """
+    """Deactivate teleop on specified arms (or all) before a primitive."""
     ctx = getattr(robot, "_active_context", None)
     if ctx is None or not hasattr(ctx, "ownership") or ctx.ownership is None:
         return
@@ -142,20 +140,102 @@ def _deactivate_teleop_for_arms(robot, arms: list[str] | None = None) -> None:
             ctx._deactivate_teleop_for(arm_name)
 
 
+def _pickup_details(ns: str) -> tuple[list[str], str | None, bool, bool, str | None]:
+    """Read pickup results from blackboard after a failed attempt.
+
+    Returns:
+        (attempted_objects, reached_object, plan_succeeded, grasp_succeeded,
+         plan_failure_reason)
+    """
+    attempted: list[str] = []
+    reached: str | None = None
+    plan_failed = False
+    grasped = False
+    plan_reason: str | None = None
+    try:
+        bb = py_trees.blackboard.Client(name=f"pickup_report{ns}")
+        bb.register_key(key=f"{ns}/tsr_to_object", access=Access.READ)
+        bb.register_key(key=f"{ns}/object_name", access=Access.READ)
+        bb.register_key(key=f"{ns}/grasped", access=Access.READ)
+        bb.register_key(key=f"{ns}/plan_failure_reason", access=Access.READ)
+        mapping = bb.get(f"{ns}/tsr_to_object")
+        if mapping:
+            attempted = sorted(set(mapping))
+        obj = bb.get(f"{ns}/object_name")
+        if obj:
+            reached = obj
+        plan_reason = bb.get(f"{ns}/plan_failure_reason")
+        plan_failed = plan_reason is not None
+        grasped = bool(bb.get(f"{ns}/grasped"))
+    except (KeyError, RuntimeError):
+        pass
+    return attempted, reached, not plan_failed, grasped, plan_reason
+
+
+def _report_pickup_failure(robot, sides_tried: list[str], target: str | None) -> None:
+    """Log detailed failure information after all arms have been tried."""
+    all_attempted: set[str] = set()
+    plan_failures: list[str] = []
+    grasp_failures: list[str] = []
+
+    for side in sides_tried:
+        ns = f"/{side}"
+        attempted, reached, planned, grasped, plan_reason = _pickup_details(ns)
+        all_attempted.update(attempted)
+        if reached and planned and not grasped:
+            grasp_failures.append(f"{reached} ({side} arm)")
+            _set_hud_action(robot, side, "✗ pickup: grasp failed")
+        elif reached and not planned:
+            detail = f"{reached} ({side} arm)"
+            short = plan_reason.split(":")[0] if plan_reason else "plan failed"
+            if plan_reason:
+                detail += f": {plan_reason}"
+            plan_failures.append(detail)
+            _set_hud_action(robot, side, f"✗ pickup: {short}")
+
+    if grasp_failures:
+        logger.warning("Pickup failed: reached %s but grasp failed", ", ".join(grasp_failures))
+    elif plan_failures:
+        logger.warning("Pickup failed: could not plan to %s", "; ".join(plan_failures))
+    elif all_attempted:
+        logger.warning("Pickup failed: could not plan to %s", ", ".join(sorted(all_attempted)))
+    else:
+        desc = f"'{target}'" if target else "any object"
+        logger.warning("Pickup failed: no graspable %s found", desc)
+
+
 def _setup_blackboard(robot, ctx, arm_name: str, arm, ns: str) -> None:
     """Set up blackboard for a manipulation BT run."""
     bb = py_trees.blackboard.Client(name="primitives")
-    bb.register_key(key="/context", access=Access.WRITE)
-    bb.register_key(key="/abort_fn", access=Access.WRITE)
-    bb.register_key(key=f"{ns}/arm", access=Access.WRITE)
-    bb.register_key(key=f"{ns}/arm_name", access=Access.WRITE)
-    bb.register_key(key=f"{ns}/timeout", access=Access.WRITE)
-    bb.register_key(key=f"{ns}/goal_config", access=Access.WRITE)
-    bb.register_key(key=f"{ns}/object_name", access=Access.WRITE)
-    bb.register_key(key=f"{ns}/destination", access=Access.WRITE)
-    bb.register_key(key=f"{ns}/grasp_source", access=Access.WRITE)
-    bb.register_key(key=f"{ns}/hand_type", access=Access.WRITE)
-    bb.register_key(key=f"{ns}/robot", access=Access.WRITE)
+    keys = [
+        "/context",
+        "/abort_fn",
+        f"{ns}/arm",
+        f"{ns}/arm_name",
+        f"{ns}/timeout",
+        f"{ns}/goal_config",
+        f"{ns}/object_name",
+        f"{ns}/destination",
+        f"{ns}/grasp_source",
+        f"{ns}/hand_type",
+        f"{ns}/robot",
+        f"{ns}/grasp_tsrs",
+        f"{ns}/place_tsrs",
+        f"{ns}/tsr_to_object",
+        f"{ns}/tsr_to_destination",
+        f"{ns}/goal_tsr_index",
+        f"{ns}/plan_failure_reason",
+        f"{ns}/grasped",
+        f"{ns}/path",
+        f"{ns}/trajectory",
+        f"{ns}/twist",
+        f"{ns}/distance",
+    ]
+    for key in keys:
+        try:
+            bb.register_key(key=key, access=Access.WRITE)
+        except KeyError:
+            pass
 
     bb.set("/context", ctx)
     bb.set("/abort_fn", lambda: robot.is_abort_requested() or _arm_preempted(robot, arm_name))
@@ -182,6 +262,20 @@ def _setup_blackboard(robot, ctx, arm_name: str, arm, ns: str) -> None:
     if ready is not None:
         bb.set(f"{ns}/goal_config", np.array(ready))
 
+    # Clear stale results from previous runs
+    for stale_key in [
+        "path",
+        "trajectory",
+        "grasped",
+        "grasp_tsrs",
+        "place_tsrs",
+        "tsr_to_object",
+        "tsr_to_destination",
+        "goal_tsr_index",
+        "plan_failure_reason",
+    ]:
+        bb.set(f"{ns}/{stale_key}", None)
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -206,7 +300,6 @@ def pickup(
     Returns:
         True if pickup succeeded.
     """
-
     ctx = getattr(robot, "_active_context", None)
     if ctx is None:
         raise RuntimeError("No active execution context. Use 'with robot.sim() as ctx:'")
@@ -218,6 +311,9 @@ def pickup(
     except KeyboardInterrupt:
         robot.request_abort()
         logger.warning("Pickup interrupted by user")
+        for side in robot.arms:
+            _set_hud_action(robot, side, "⊘ interrupted")
+        _sync_viewer(robot)
         return False
     finally:
         robot.clear_abort()
@@ -226,6 +322,12 @@ def pickup(
 def _pickup_inner(robot, ctx, target, *, arm, verbose) -> bool:
     from mj_manipulator.bt.subtrees import full_pickup
 
+    # Quick check: are there any matching objects?
+    if not robot.find_objects(target):
+        desc = f"'{target}'" if target else "any object"
+        logger.warning("Pickup failed: no graspable objects found for %s", desc)
+        return False
+
     # Determine which arms to try
     if arm is not None:
         sides = [arm]
@@ -233,12 +335,12 @@ def _pickup_inner(robot, ctx, target, *, arm, verbose) -> bool:
         sides = list(robot.arms.keys())
         random.shuffle(sides)
 
-    for side in sides:
+    sides_tried = []
+    for i, side in enumerate(sides):
         arm_obj = robot.arms[side]
         ns = f"/{side}"
         _setup_blackboard(robot, ctx, side, arm_obj, ns)
 
-        # Set target
         bb = py_trees.blackboard.Client(name="pickup_target")
         bb.register_key(key=f"{ns}/object_name", access=Access.WRITE)
         bb.set(f"{ns}/object_name", target)
@@ -248,18 +350,24 @@ def _pickup_inner(robot, ctx, target, *, arm, verbose) -> bool:
         tree = full_pickup(ns)
         if _tick_tree(tree, verbose=verbose):
             _set_hud_action(robot, side, f"✓ pickup({desc})")
+            _sync_viewer(robot)
             return True
 
         _set_hud_action(robot, side, f"✗ pickup({desc})")
+        sides_tried.append(side)
 
         # Stop if abort or this arm was preempted (e.g. teleop)
         if robot.is_abort_requested() or _arm_preempted(robot, side):
+            _sync_viewer(robot)
             return False
 
-    if target:
-        logger.warning("Pickup failed for target '%s'", target)
-    else:
-        logger.warning("Pickup failed: no reachable objects")
+        # Before trying the next arm, send this arm home
+        # so it doesn't block the workspace (skip if preempted)
+        if i < len(sides) - 1 and not _arm_preempted(robot, side):
+            go_home(robot, arm=side)
+
+    _report_pickup_failure(robot, sides_tried, target)
+    _sync_viewer(robot)
     return False
 
 
@@ -281,7 +389,6 @@ def place(
     Returns:
         True if placement succeeded.
     """
-
     ctx = getattr(robot, "_active_context", None)
     if ctx is None:
         raise RuntimeError("No active execution context. Use 'with robot.sim() as ctx:'")
@@ -303,6 +410,8 @@ def place(
     except KeyboardInterrupt:
         robot.request_abort()
         logger.warning("Place interrupted by user")
+        _set_hud_action(robot, arm, "⊘ interrupted")
+        _sync_viewer(robot)
         return False
     finally:
         robot.clear_abort()
@@ -320,7 +429,6 @@ def _place_inner(robot, ctx, destination, *, arm, verbose) -> bool:
     bb.register_key(key=f"{ns}/object_name", access=Access.WRITE)
     bb.set(f"{ns}/destination", destination)
 
-    # Set held object name for placement TSR generation
     held_name = None
     if arm_obj.gripper:
         held_name = arm_obj.gripper.held_object
@@ -333,13 +441,13 @@ def _place_inner(robot, ctx, destination, *, arm, verbose) -> bool:
 
     if ok:
         _set_hud_action(robot, arm, f"✓ place({desc})")
-        # Hide object if placed in a container (simulates disposal)
         if held_name:
             _maybe_hide_in_container(robot, ns, destination, held_name)
     else:
         _set_hud_action(robot, arm, f"✗ place({desc})")
         logger.warning("Place failed for destination '%s'", destination)
 
+    _sync_viewer(robot)
     return ok
 
 
