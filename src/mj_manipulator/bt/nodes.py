@@ -233,6 +233,56 @@ class Release(_ManipulationNode):
         return Status.SUCCESS
 
 
+class SafeRetract(_ManipulationNode):
+    """Move along a twist until NEW collisions appear (post-grasp lift).
+
+    Unlike CartesianMove, this tracks the baseline contact state and stops
+    if new contacts appear. Start-state collisions (e.g. held object
+    touching source surface) are tolerated.
+
+    Reads: ``{ns}/arm``, ``{ns}/twist``, ``{ns}/distance``, ``/context``
+    """
+
+    def __init__(self, ns: str = "", name: str = "SafeRetract"):
+        super().__init__(name, ns)
+        self.bb.register_key(key=self._key("arm"), access=Access.READ)
+        self.bb.register_key(key=self._key("arm_name"), access=Access.READ)
+        self.bb.register_key(key=self._key("twist"), access=Access.READ)
+        self.bb.register_key(key=self._key("distance"), access=Access.READ)
+        self.bb.register_key(key="/context", access=Access.READ)
+        try:
+            self.bb.register_key(key="/abort_fn", access=Access.READ)
+        except KeyError:
+            pass
+
+    def update(self) -> Status:
+        from mj_manipulator.safe_retract import safe_retract
+
+        arm = self.bb.get(self._key("arm"))
+        arm_name = self.bb.get(self._key("arm_name"))
+        twist = self.bb.get(self._key("twist"))
+        distance = self.bb.get(self._key("distance"))
+        ctx = self.bb.get("/context")
+
+        try:
+            abort_fn = self.bb.get("/abort_fn")
+        except KeyError:
+            abort_fn = None
+
+        def step_fn(q, qd):
+            ctx.step_cartesian(arm_name, q, qd)
+
+        safe_retract(
+            arm,
+            step_fn,
+            twist,
+            max_distance=distance,
+            dt=ctx.control_dt,
+            stop_condition=abort_fn,
+        )
+        return Status.SUCCESS
+
+
 class CartesianMove(_ManipulationNode):
     """Move end-effector along a twist using Cartesian velocity control.
 

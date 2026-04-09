@@ -30,6 +30,7 @@ from mj_manipulator.bt.nodes import (
     PlanToTSRs,
     Release,
     Retime,
+    SafeRetract,
     Sync,
 )
 
@@ -83,7 +84,7 @@ def pickup(ns: str) -> py_trees.composites.Sequence:
             Sync(ns=ns),
             set_twist,
             set_distance,
-            CartesianMove(ns=ns),
+            SafeRetract(ns=ns),
             Sync(ns=ns),
         ],
     )

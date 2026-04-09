@@ -26,6 +26,7 @@ from mj_manipulator.bt.nodes import (
     PlanToTSRs,
     Release,
     Retime,
+    SafeRetract,
     Sync,
 )
 from mj_manipulator.bt.subtrees import (
@@ -48,6 +49,7 @@ __all__ = [
     "Grasp",
     "Release",
     "CartesianMove",
+    "SafeRetract",
     "CheckNotNearConfig",
     "Sync",
     "GenerateGrasps",

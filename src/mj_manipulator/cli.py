@@ -210,19 +210,23 @@ def _setup_franka(objects):
     if objects:
         from prl_assets import OBJECTS_DIR
 
-        # Flat plate on the ground in front of the robot for objects
-        plate = spec.worldbody.add_body()
-        plate.name = "plate"
-        plate.pos = [0.5, 0.0, 0.005]
-        g = plate.add_geom()
+        # Low table in front of the robot for objects.
+        # Height tuned so the grasp is in the middle of the Franka's
+        # workspace — low enough to reach, high enough to lift without
+        # link6 colliding with the world after grasping.
+        TABLE_HEIGHT = 0.20
+        table = spec.worldbody.add_body()
+        table.name = "table"
+        table.pos = [0.5, 0.0, TABLE_HEIGHT / 2]
+        g = table.add_geom()
         g.type = mujoco.mjtGeom.mjGEOM_BOX
-        g.size = [0.30, 0.30, 0.005]
-        g.rgba = [0.6, 0.6, 0.6, 1.0]
-        # Worktop site on plate surface — enables robot.place("worktop")
-        s = plate.add_site()
+        g.size = [0.25, 0.25, TABLE_HEIGHT / 2]
+        g.rgba = [0.4, 0.3, 0.2, 1.0]
+        # Worktop site on table surface — enables robot.place("worktop")
+        s = table.add_site()
         s.name = "worktop"
-        s.pos = [0, 0, 0.005]
-        s.size = [0.25, 0.25, 0.001]
+        s.pos = [0, 0, TABLE_HEIGHT / 2]
+        s.size = [0.20, 0.20, 0.001]
         s.type = mujoco.mjtGeom.mjGEOM_BOX
         s.rgba = [0, 0, 0, 0]
 
