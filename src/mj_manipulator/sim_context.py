@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import Future
 from typing import TYPE_CHECKING
 
@@ -304,7 +305,12 @@ class SimContext:
 
     # -- ExecutionContext protocol -------------------------------------------
 
-    def execute(self, item: object) -> bool:
+    def execute(
+        self,
+        item: object,
+        *,
+        abort_fn: Callable[[], bool] | None = None,
+    ) -> bool:
         """Execute a trajectory or plan result.
 
         In tick-driven mode (event loop + controller), trajectories run
@@ -320,21 +326,34 @@ class SimContext:
 
         Args:
             item: Trajectory or PlanResult to execute.
+            abort_fn: Optional per-call abort predicate. Runner stops the
+                next control cycle after this returns True. Used by
+                collision-aware primitives (e.g. safe_retract) to halt
+                mid-trajectory when a new contact appears. Composes with
+                (does not replace) the ownership-registry abort: either
+                one returning True stops the trajectory.
 
         Returns:
             True if execution completed successfully.
         """
         if self._event_loop is not None and self._controller is not None:
-            return self._execute_tick_driven(item)
+            return self._execute_tick_driven(item, abort_fn=abort_fn)
 
         if self._event_loop is not None:
             # Kinematic with event loop: legacy blocking dispatch
             self._event_loop._deactivate_all_teleop()
-            return self._event_loop.run_on_physics_thread(lambda: self._execute_impl(item))
+            return self._event_loop.run_on_physics_thread(
+                lambda: self._execute_impl(item, abort_fn=abort_fn)
+            )
 
-        return self._execute_impl(item)
+        return self._execute_impl(item, abort_fn=abort_fn)
 
-    def _execute_tick_driven(self, item: object) -> bool:
+    def _execute_tick_driven(
+        self,
+        item: object,
+        *,
+        abort_fn: Callable[[], bool] | None = None,
+    ) -> bool:
         """Execute via non-blocking trajectory runners.
 
         Two modes depending on which thread calls:
@@ -363,8 +382,14 @@ class SimContext:
             if entity is None:
                 raise ValueError("Trajectory has no entity set")
 
-            # Acquire ownership and build per-arm/entity abort function
-            abort_fn = None
+            # Build per-arm/entity abort function.
+            # The caller-supplied ``abort_fn`` composes with (does not
+            # replace) the ownership abort and the context-level abort:
+            # any of the three returning True halts the trajectory at
+            # the next control cycle.
+            caller_abort = abort_fn  # shadow the outer parameter into closure
+            runner_abort_fn: Callable[[], bool] | None = None
+
             if self._ownership is not None:
                 from mj_manipulator.ownership import OwnerKind
 
@@ -382,17 +407,39 @@ class SimContext:
                     return False
                 self._ownership.acquire(entity, OwnerKind.TRAJECTORY, traj)
 
-                def _make_abort_fn(e=entity):
-                    return self._ownership.is_aborted(e)
+                def _make_abort_fn(e=entity, ca=caller_abort):
+                    reg = self._ownership
+                    ctx_abort = self._abort_fn
 
-                abort_fn = _make_abort_fn
-            elif self._abort_fn is not None:
-                abort_fn = self._abort_fn
+                    def _abort() -> bool:
+                        if reg is not None and reg.is_aborted(e):
+                            return True
+                        if ctx_abort is not None and ctx_abort():
+                            return True
+                        if ca is not None and ca():
+                            return True
+                        return False
+
+                    return _abort
+
+                runner_abort_fn = _make_abort_fn()
+            else:
+                # No ownership registry — still compose context + caller
+                ctx_abort = self._abort_fn
+                if caller_abort is not None or ctx_abort is not None:
+                    def _abort(ca=caller_abort, cx=ctx_abort) -> bool:
+                        if cx is not None and cx():
+                            return True
+                        if ca is not None and ca():
+                            return True
+                        return False
+
+                    runner_abort_fn = _abort
 
             try:
                 if on_owner_thread:
                     # We ARE the tick pump — start runner and drive tick() directly
-                    future = self._controller.start_trajectory(entity, traj, abort_fn)
+                    future = self._controller.start_trajectory(entity, traj, runner_abort_fn)
                     control_dt = self._controller.control_dt
                     realtime = self._controller.viewer is not None
                     t_next = time.monotonic() + control_dt
@@ -410,7 +457,7 @@ class SimContext:
                     # the inputhook pumps tick() on the owner thread
                     runner_future: Future[bool] = Future()
 
-                    def _start(t=traj, af=abort_fn, rf=runner_future):
+                    def _start(t=traj, af=runner_abort_fn, rf=runner_future):
                         try:
                             f = self._controller.start_trajectory(t.entity, t, af)
                             f.add_done_callback(lambda done_f: rf.set_result(done_f.result()))
@@ -429,19 +476,37 @@ class SimContext:
 
         return True
 
-    def _execute_impl(self, item: object) -> bool:
+    def _execute_impl(
+        self,
+        item: object,
+        *,
+        abort_fn: Callable[[], bool] | None = None,
+    ) -> bool:
         """Execute implementation — synchronous, always runs on the physics thread."""
         from mj_manipulator.planning import PlanResult
         from mj_manipulator.trajectory import Trajectory
 
+        # In the kinematic/legacy path, abort checks happen between
+        # trajectories only (not between waypoints). That's acceptable
+        # because kinematic mode is fast and primarily used for planning/
+        # testing; the tick-driven physics path does per-waypoint checks.
+        def _should_abort() -> bool:
+            if self._abort_fn is not None and self._abort_fn():
+                return True
+            if abort_fn is not None and abort_fn():
+                return True
+            return False
+
         if isinstance(item, PlanResult):
             for traj in item.trajectories:
-                if self._abort_fn is not None and self._abort_fn():
+                if _should_abort():
                     return False
                 if not self._execute_trajectory(traj):
                     return False
             return True
         elif isinstance(item, Trajectory):
+            if _should_abort():
+                return False
             return self._execute_trajectory(item)
         else:
             raise TypeError(f"Cannot execute {type(item)}")
