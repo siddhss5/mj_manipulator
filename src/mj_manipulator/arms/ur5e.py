@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import mujoco
 import numpy as np
 
 from mj_manipulator.arm import Arm
@@ -52,6 +53,44 @@ UR5E_HOME = np.array([-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0])
 # From UR5e datasheet, halved for conservative planning
 UR5E_VELOCITY_LIMITS = np.array([3.14, 3.14, 3.14, 6.28, 6.28, 6.28]) * 0.5
 UR5E_ACCELERATION_LIMITS = np.array([2.5, 2.5, 2.5, 5.0, 5.0, 5.0]) * 0.5
+
+
+# ---------------------------------------------------------------------------
+# MjSpec helpers (must run before spec.compile())
+# ---------------------------------------------------------------------------
+
+
+def add_ur5e_gravcomp(spec: mujoco.MjSpec) -> None:
+    """Enable gravity compensation on every UR5e body in an MjSpec.
+
+    Must be called **before** ``spec.compile()``. MuJoCo optimizes gravcomp
+    away at compile time if every body has ``gravcomp=0``; runtime changes
+    to ``model.body_gravcomp`` are silently ignored.
+
+    The menagerie UR5e model ships without gravcomp. Real UR5e controllers
+    (URScript / RTDE / URCap) run gravity compensation internally, so
+    enabling it in sim matches hardware behavior — otherwise the PD loop
+    must fight gravity via steady-state position error, producing sag at
+    rest and tracking lag in motion. Call this on every UR5e MjSpec loaded
+    from the menagerie. The geodude_assets UR5e already has ``gravcomp=1``
+    baked into its source XML, so this helper is a no-op there.
+
+    Args:
+        spec: MjSpec loaded from a UR5e scene XML.
+    """
+    _UR5E_BODIES = [
+        "base",
+        "shoulder_link",
+        "upper_arm_link",
+        "forearm_link",
+        "wrist_1_link",
+        "wrist_2_link",
+        "wrist_3_link",
+    ]
+    for name in _UR5E_BODIES:
+        body = spec.body(name)
+        if body is not None:
+            body.gravcomp = 1.0
 
 
 # ---------------------------------------------------------------------------
