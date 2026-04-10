@@ -11,7 +11,6 @@ Uses real menagerie/geodude_assets robot models to verify:
 - Integration with arm factories
 """
 
-import geodude_assets
 import mujoco
 import pytest
 from mj_environment import Environment
@@ -20,6 +19,14 @@ from mj_manipulator.grasp_manager import GraspManager
 from mj_manipulator.grippers.franka import FrankaGripper
 from mj_manipulator.grippers.robotiq import RobotiqGripper
 from mj_manipulator.protocols import Gripper
+
+# Robotiq tests require ``geodude_assets`` for the 2F140 scene XML, but
+# geodude_assets is not a declared dependency of mj_manipulator (it's a
+# downstream consumer's package). Skip the whole test module when it's
+# not importable so CI collection doesn't error out before any tests
+# run. The proper architectural fix — moving Robotiq tests into
+# geodude/tests/ — is tracked in #87.
+geodude_assets = pytest.importorskip("geodude_assets")
 
 # ---------------------------------------------------------------------------
 # Paths
