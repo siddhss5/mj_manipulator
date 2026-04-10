@@ -131,6 +131,89 @@ def add_franka_ee_site(
     site.pos = pos
 
 
+def add_franka_pad_friction(
+    spec: mujoco.MjSpec,
+    *,
+    sliding_friction: float = 1.5,
+    torsional_friction: float = 0.05,
+    rolling_friction: float = 0.0002,
+    solref: tuple[float, float] = (0.01, 1.0),
+    solimp: tuple[float, float, float, float, float] = (0.9, 0.95, 0.001, 0.5, 2.0),
+) -> None:
+    """Boost fingertip-pad grip to mimic compliant silicone contact.
+
+    Must be called **before** ``spec.compile()``.
+
+    The real Franka hand has **moulded silicone pads** on the fingertips: a
+    ~12 × 22 mm flat face with a shallow cylindrical groove, ~3 mm thick,
+    that deforms a couple of millimeters under 70 N of normal force. The
+    compliance turns line contact against a cylinder into a strip contact
+    ~8 mm wide, dramatically increasing grip against transverse load.
+
+    The menagerie Panda model approximates each pad with **five small
+    rigid boxes** and no friction override. Against a can the contact
+    area collapses to almost a point, the silicone grip is lost, and
+    even a modest acceleration during the lift slides the object out of
+    the gripper. This helper applies two compensations to the pad
+    collision geoms:
+
+    1. **High priority friction**: ``friction=(sliding, torsional,
+       rolling)`` with ``priority=1`` so the pad wins over the held
+       object's friction (normally MuJoCo takes per-parameter max).
+       Default ``sliding_friction=1.5`` is within the physically
+       plausible range for silicone-on-aluminum; torsional and rolling
+       values are above MuJoCo defaults to resist rotational slip.
+
+    2. **Soft contact**: smaller ``solref[0]`` (contact time constant)
+       and tighter ``solimp`` (constraint impedance). This lets the
+       constraint solver produce a slight penetration (~1 mm) that
+       visually matches a deformed silicone pad and enlarges the
+       effective contact area.
+
+    Together these mimic silicone compliance and grip without changing
+    the pad geometry, at the cost of modeling rigid-body contact that
+    behaves "as if" it were compliant. This is the standard sim
+    tradeoff for parallel-jaw grasping tasks — adding compliant-contact
+    primitives to MuJoCo is out of scope.
+
+    Args:
+        spec: MjSpec loaded from a Franka scene XML.
+        sliding_friction: Coulomb friction coefficient (1st friction
+            parameter). Real silicone-on-metal is ~1.0-1.5.
+        torsional_friction: Rotational friction about contact normal
+            (2nd friction parameter). MuJoCo default 0.005 is too low.
+        rolling_friction: Resistance to rolling (3rd friction parameter).
+            MuJoCo default 0.0001 is fine but bumped slightly.
+        solref: ``(timeconst, dampratio)`` contact solver reference.
+            Smaller timeconst = softer contact, more penetration.
+            Default 0.01 s gives ~1 mm of "squish" against a can.
+        solimp: ``(dmin, dmax, width, midpoint, power)`` contact solver
+            impedance. Tighter ``dmin``/``dmax`` produce stiffer contact;
+            ``width`` controls how quickly the solver transitions between
+            them. MuJoCo defaults are ``(0.9, 0.95, 0.001, 0.5, 2.0)``.
+    """
+    friction = [sliding_friction, torsional_friction, rolling_friction]
+    solref_list = list(solref)
+    solimp_list = list(solimp)
+
+    for finger_name in ("left_finger", "right_finger"):
+        body = spec.body(finger_name)
+        if body is None:
+            continue
+        for geom in body.geoms:
+            # Only touch the pad collision boxes — skip visual meshes and
+            # the larger finger collision mesh. The pads are the five
+            # small boxes defined via fingertip_pad_collision_* classes.
+            if geom.type != mujoco.mjtGeom.mjGEOM_BOX:
+                continue
+            if geom.contype == 0:  # visual group
+                continue
+            geom.friction = friction
+            geom.solref = solref_list
+            geom.solimp = solimp_list
+            geom.priority = 1
+
+
 def add_franka_gravcomp(spec: mujoco.MjSpec) -> None:
     """Enable gravity compensation on every Franka body in an MjSpec.
 

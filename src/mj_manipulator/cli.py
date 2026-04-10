@@ -190,6 +190,7 @@ def _setup_franka(objects):
         FRANKA_HOME,
         add_franka_ee_site,
         add_franka_gravcomp,
+        add_franka_pad_friction,
         create_franka_arm,
         fix_franka_grip_force,
     )
@@ -208,22 +209,25 @@ def _setup_franka(objects):
     spec = mujoco.MjSpec.from_file(str(scene_path))
     add_franka_ee_site(spec)
     add_franka_gravcomp(spec)
+    add_franka_pad_friction(spec)
 
     if objects:
         from prl_assets import OBJECTS_DIR
 
-        # Flat plate on the ground in front of the robot for objects
+        # Raised plate in front of the robot for objects (5cm tall so the
+        # Franka isn't reaching into a near-singular configuration and link6
+        # has clearance from the plate surface during cartesian lift).
         plate = spec.worldbody.add_body()
         plate.name = "plate"
-        plate.pos = [0.5, 0.0, 0.005]
+        plate.pos = [0.5, 0.0, 0.025]
         g = plate.add_geom()
         g.type = mujoco.mjtGeom.mjGEOM_BOX
-        g.size = [0.30, 0.30, 0.005]
+        g.size = [0.30, 0.30, 0.025]
         g.rgba = [0.6, 0.6, 0.6, 1.0]
         # Worktop site on plate surface — enables robot.place("worktop")
         s = plate.add_site()
         s.name = "worktop"
-        s.pos = [0, 0, 0.005]
+        s.pos = [0, 0, 0.025]
         s.size = [0.25, 0.25, 0.001]
         s.type = mujoco.mjtGeom.mjGEOM_BOX
         s.rgba = [0, 0, 0, 0]
@@ -273,9 +277,9 @@ def _scatter_objects(env, objects: dict):
 
     assets = AssetManager(str(OBJECTS_DIR))
 
-    # Plate surface: ground level in front of robot
+    # Plate surface: top of raised plate in front of robot (see _setup_franka)
     plate_surface = np.eye(4)
-    plate_surface[:3, 3] = [0.5, 0.0, 0.01]
+    plate_surface[:3, 3] = [0.5, 0.0, 0.05]
     placer = StablePlacer(0.25, 0.25)
 
     placed_positions = []
