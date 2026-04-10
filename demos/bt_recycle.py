@@ -32,9 +32,15 @@ from tsr.placement import StablePlacer
 from mj_manipulator.arms.franka import (
     FRANKA_HOME,
     add_franka_ee_site,
+    add_franka_gravcomp,
     create_franka_arm,
 )
-from mj_manipulator.arms.ur5e import UR5E_HOME, UR5E_ROBOTIQ_EE_SITE, create_ur5e_arm
+from mj_manipulator.arms.ur5e import (
+    UR5E_HOME,
+    UR5E_ROBOTIQ_EE_SITE,
+    add_ur5e_gravcomp,
+    create_ur5e_arm,
+)
 from mj_manipulator.bt import pickup_with_recovery, place_with_recovery
 from mj_manipulator.config import PhysicsConfig, PhysicsExecutionConfig
 from mj_manipulator.grasp_manager import GraspManager
@@ -84,6 +90,7 @@ def setup_scene(robot_type):
     """Build scene with robot + table + cans + bin."""
     if robot_type == "ur5e":
         spec = mujoco.MjSpec.from_file(str(UR5E_SCENE))
+        add_ur5e_gravcomp(spec)
         robotiq_spec = mujoco.MjSpec.from_file(str(ROBOTIQ_MODEL))
         wrist = spec.worldbody.find_child("wrist_3_link")
         frame = wrist.add_frame()
@@ -93,6 +100,7 @@ def setup_scene(robot_type):
     else:
         spec = mujoco.MjSpec.from_file(str(FRANKA_SCENE))
         add_franka_ee_site(spec)
+        add_franka_gravcomp(spec)
 
     # Table + cans
     table_half = [0.15, 0.15, 0.23]
