@@ -217,37 +217,25 @@ def add_franka_pad_friction(
 def add_franka_gravcomp(spec: mujoco.MjSpec) -> None:
     """Enable gravity compensation on every Franka body in an MjSpec.
 
-    Must be called **before** ``spec.compile()``. MuJoCo optimizes gravcomp
-    away at compile time if every body has ``gravcomp=0``; runtime changes
-    to ``model.body_gravcomp`` are silently ignored.
+    Must be called **before** ``spec.compile()``. Real Franka FCI runs
+    gravity compensation internally at 1 kHz, so enabling it in sim
+    matches hardware behavior — otherwise the PD loop must fight
+    gravity via steady-state position error, producing sag at rest
+    and tracking lag in motion. Call this on every Franka MjSpec
+    loaded from the menagerie, analogous to ``add_franka_ee_site``.
 
-    The menagerie Franka model ships without gravcomp. Real Franka FCI runs
-    gravity compensation internally at 1 kHz, so enabling it in sim matches
-    hardware behavior — otherwise the PD loop must fight gravity via
-    steady-state position error, producing sag at rest and tracking lag in
-    motion. Call this on every Franka MjSpec loaded from the menagerie,
-    analogous to ``add_franka_ee_site``.
+    Delegates to :func:`mj_manipulator.arm.add_subtree_gravcomp` with
+    the Franka kinematic root ``"link0"``. The subtree walker visits
+    every descendant body, which for the menagerie Franka is the 7
+    arm links plus ``hand``, ``left_finger``, ``right_finger`` (11
+    bodies total).
 
     Args:
         spec: MjSpec loaded from a Franka scene XML.
     """
-    _FRANKA_BODIES = [
-        "link0",
-        "link1",
-        "link2",
-        "link3",
-        "link4",
-        "link5",
-        "link6",
-        "link7",
-        "hand",
-        "left_finger",
-        "right_finger",
-    ]
-    for name in _FRANKA_BODIES:
-        body = spec.body(name)
-        if body is not None:
-            body.gravcomp = 1.0
+    from mj_manipulator.arm import add_subtree_gravcomp
+
+    add_subtree_gravcomp(spec, "link0")
 
 
 # ---------------------------------------------------------------------------

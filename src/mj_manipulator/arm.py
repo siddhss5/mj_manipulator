@@ -123,6 +123,84 @@ def _read_site_pose(
     return T
 
 
+def add_subtree_gravcomp(
+    spec: mujoco.MjSpec,
+    root_body_name: str,
+) -> int:
+    """Enable gravity compensation on a body and all its descendants.
+
+    Must be called **before** ``spec.compile()``. MuJoCo optimizes
+    gravcomp away at compile time if every body has ``gravcomp=0``;
+    runtime writes to ``model.body_gravcomp`` are silently ignored.
+    That's why this helper operates on the MjSpec (editable) rather
+    than a compiled ``MjModel``.
+
+    Walks the MjSpec body tree rooted at ``root_body_name`` via an
+    explicit stack (robust to whatever iteration the MjSpec API
+    provides) and sets ``body.gravcomp = 1.0`` on every body it
+    finds. This is the primitive that per-arm helpers like
+    :func:`mj_manipulator.arms.franka.add_franka_gravcomp` delegate
+    to — they just know the right root body name.
+
+    Idempotent: calling twice on the same spec, or on overlapping
+    subtrees, is harmless because setting ``gravcomp = 1.0`` twice
+    produces the same result.
+
+    Failure modes handled:
+
+    - **root_body_name not found**: raises ``ValueError`` with the
+      bad name AND the list of top-level world-body children, so
+      typos are easy to diagnose.
+    - **Root with no descendants**: still sets gravcomp on the root
+      and returns ``count = 1``. Degenerate but valid.
+
+    Not handled (caller's responsibility):
+
+    - Calling on an already-compiled spec. The MjSpec API doesn't
+      expose a reliable "was this compiled?" check; the call will
+      still "succeed" but have no effect on the existing MjModel.
+    - Scoping: if you pass a root that's an ancestor of bodies you
+      don't want gravcomp'd (e.g. the world body, or a linear base
+      beneath the arm), the walker will touch them too. Per-arm
+      helpers sidestep this by passing the arm's kinematic root,
+      not a higher ancestor.
+
+    Args:
+        spec: MjSpec loaded from a scene XML. Must not have been
+            compiled yet (or the gravcomp change will be ignored).
+        root_body_name: Name of the root body for the gravcomp
+            subtree. Typically the arm's base link (e.g. ``"link0"``
+            for Franka, ``"base"`` for UR5e).
+
+    Returns:
+        Number of bodies that had ``gravcomp`` set. Useful for
+        sanity-checking that the walker touched the expected count
+        (11 for Franka, 7 for bare UR5e, etc.).
+
+    Raises:
+        ValueError: If ``root_body_name`` is not found in the spec.
+            The message includes the bad name and the list of
+            top-level children of ``spec.worldbody`` so the caller
+            can see what's actually there.
+    """
+    root = spec.body(root_body_name)
+    if root is None:
+        available = [b.name for b in spec.worldbody.bodies if b.name]
+        raise ValueError(
+            f"add_subtree_gravcomp: body '{root_body_name}' not found in spec. "
+            f"Top-level worldbody children: {available}"
+        )
+
+    count = 0
+    stack = [root]
+    while stack:
+        body = stack.pop()
+        body.gravcomp = 1.0
+        count += 1
+        stack.extend(body.bodies)
+    return count
+
+
 # =============================================================================
 # Arm
 # =============================================================================

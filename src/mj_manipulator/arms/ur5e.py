@@ -63,34 +63,28 @@ UR5E_ACCELERATION_LIMITS = np.array([2.5, 2.5, 2.5, 5.0, 5.0, 5.0]) * 0.5
 def add_ur5e_gravcomp(spec: mujoco.MjSpec) -> None:
     """Enable gravity compensation on every UR5e body in an MjSpec.
 
-    Must be called **before** ``spec.compile()``. MuJoCo optimizes gravcomp
-    away at compile time if every body has ``gravcomp=0``; runtime changes
-    to ``model.body_gravcomp`` are silently ignored.
-
-    The menagerie UR5e model ships without gravcomp. Real UR5e controllers
+    Must be called **before** ``spec.compile()``. Real UR5e controllers
     (URScript / RTDE / URCap) run gravity compensation internally, so
-    enabling it in sim matches hardware behavior — otherwise the PD loop
-    must fight gravity via steady-state position error, producing sag at
-    rest and tracking lag in motion. Call this on every UR5e MjSpec loaded
-    from the menagerie. The geodude_assets UR5e already has ``gravcomp=1``
-    baked into its source XML, so this helper is a no-op there.
+    enabling it in sim matches hardware behavior — otherwise the PD
+    loop must fight gravity via steady-state position error, producing
+    sag at rest and tracking lag in motion. Call this on every UR5e
+    MjSpec loaded from the menagerie. The geodude_assets UR5e already
+    has ``gravcomp=1`` baked into its source XML, so this helper is a
+    no-op there (idempotent).
+
+    Delegates to :func:`mj_manipulator.arm.add_subtree_gravcomp` with
+    the UR5e kinematic root ``"base"``. The subtree walker visits
+    every descendant body, which for the bare menagerie UR5e is the
+    7 arm links (``base`` through ``wrist_3_link``). If a gripper is
+    attached under ``wrist_3_link`` before this helper runs, its
+    bodies will also be included, which is usually what you want.
 
     Args:
         spec: MjSpec loaded from a UR5e scene XML.
     """
-    _UR5E_BODIES = [
-        "base",
-        "shoulder_link",
-        "upper_arm_link",
-        "forearm_link",
-        "wrist_1_link",
-        "wrist_2_link",
-        "wrist_3_link",
-    ]
-    for name in _UR5E_BODIES:
-        body = spec.body(name)
-        if body is not None:
-            body.gravcomp = 1.0
+    from mj_manipulator.arm import add_subtree_gravcomp
+
+    add_subtree_gravcomp(spec, "base")
 
 
 # ---------------------------------------------------------------------------
