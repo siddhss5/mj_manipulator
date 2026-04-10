@@ -51,43 +51,47 @@ def plan_and_execute(ns: str, tsrs_key: str = "tsrs") -> py_trees.composites.Seq
     )
 
 
-def pickup(ns: str) -> py_trees.composites.Sequence:
-    """Full pickup: plan → execute → grasp → lift.
+def pickup(ns: str, *, with_lift: bool = True) -> py_trees.composites.Sequence:
+    """Full pickup: plan → execute → grasp → (optional cartesian lift).
 
     Requires on blackboard:
         ``{ns}/arm``, ``{ns}/grasp_tsrs``, ``{ns}/timeout``,
         ``{ns}/arm_name``, ``{ns}/object_name``
 
-    Sets ``{ns}/twist`` and ``{ns}/distance`` for the lift.
-    """
-    # SetBlackboardVariable for lift parameters
-    set_twist = py_trees.behaviours.SetBlackboardVariable(
-        name="set_lift_twist",
-        variable_name=f"{ns}/twist",
-        variable_value=np.array([0.0, 0.0, 0.10, 0.0, 0.0, 0.0]),
-        overwrite=True,
-    )
-    set_distance = py_trees.behaviours.SetBlackboardVariable(
-        name="set_lift_distance",
-        variable_name=f"{ns}/distance",
-        variable_value=0.15,
-        overwrite=True,
-    )
+    Args:
+        ns: Blackboard namespace for this arm.
+        with_lift: If True (default), append a 15cm cartesian ``SafeRetract``
+            after the grasp — appropriate for fixed-base arms (Franka) where
+            the arm itself must clear the grasp. Set to False for arms mounted
+            on a linear base (e.g. geodude's Vention gantry) where the base
+            handles the post-grasp clearance and a cartesian arm lift would
+            be redundant or harmful.
 
-    return py_trees.composites.Sequence(
-        name="pickup",
-        memory=True,
-        children=[
-            plan_and_execute(ns, tsrs_key="grasp_tsrs"),
-            Sync(ns=ns),
-            Grasp(ns=ns),
-            Sync(ns=ns),
-            set_twist,
-            set_distance,
-            SafeRetract(ns=ns),
-            Sync(ns=ns),
-        ],
-    )
+    Sets ``{ns}/twist`` and ``{ns}/distance`` when ``with_lift=True``.
+    """
+    children: list[py_trees.behaviour.Behaviour] = [
+        plan_and_execute(ns, tsrs_key="grasp_tsrs"),
+        Sync(ns=ns),
+        Grasp(ns=ns),
+        Sync(ns=ns),
+    ]
+
+    if with_lift:
+        set_twist = py_trees.behaviours.SetBlackboardVariable(
+            name="set_lift_twist",
+            variable_name=f"{ns}/twist",
+            variable_value=np.array([0.0, 0.0, 0.10, 0.0, 0.0, 0.0]),
+            overwrite=True,
+        )
+        set_distance = py_trees.behaviours.SetBlackboardVariable(
+            name="set_lift_distance",
+            variable_name=f"{ns}/distance",
+            variable_value=0.15,
+            overwrite=True,
+        )
+        children.extend([set_twist, set_distance, SafeRetract(ns=ns), Sync(ns=ns)])
+
+    return py_trees.composites.Sequence(name="pickup", memory=True, children=children)
 
 
 def recover(ns: str) -> py_trees.composites.Sequence:
@@ -141,18 +145,23 @@ def recover(ns: str) -> py_trees.composites.Sequence:
     )
 
 
-def pickup_with_recovery(ns: str) -> py_trees.composites.Selector:
+def pickup_with_recovery(ns: str, *, with_lift: bool = True) -> py_trees.composites.Selector:
     """Pickup with fallback recovery on failure.
 
     If pickup fails at any stage, releases, retracts, and returns home.
     The Selector still returns FAILURE because recovery wraps with
     SuccessIsFailure — cleanup succeeded but the task did not.
+
+    Args:
+        ns: Blackboard namespace.
+        with_lift: Forwarded to :func:`pickup`. Set to False for gantry-mounted
+            arms that handle post-grasp clearance via a base lift.
     """
     return py_trees.composites.Selector(
         name="pickup_or_recover",
         memory=True,
         children=[
-            pickup(ns),
+            pickup(ns, with_lift=with_lift),
             py_trees.decorators.SuccessIsFailure(
                 name="recover_then_fail",
                 child=recover(ns),
