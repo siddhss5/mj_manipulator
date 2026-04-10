@@ -236,9 +236,10 @@ class Release(_ManipulationNode):
 class SafeRetract(_ManipulationNode):
     """Move along a twist until NEW collisions appear (post-grasp lift).
 
-    Unlike CartesianMove, this tracks the baseline contact state and stops
-    if new contacts appear. Start-state collisions (e.g. held object
-    touching source surface) are tolerated.
+    Plans a Cartesian path along the twist direction and executes it via
+    the standard trajectory runner with a baseline-contact abort predicate.
+    Start-state collisions (e.g. held object touching source surface) are
+    tolerated; only *new* contacts stop the motion.
 
     Reads: ``{ns}/arm``, ``{ns}/twist``, ``{ns}/distance``, ``/context``
     """
@@ -246,7 +247,6 @@ class SafeRetract(_ManipulationNode):
     def __init__(self, ns: str = "", name: str = "SafeRetract"):
         super().__init__(name, ns)
         self.bb.register_key(key=self._key("arm"), access=Access.READ)
-        self.bb.register_key(key=self._key("arm_name"), access=Access.READ)
         self.bb.register_key(key=self._key("twist"), access=Access.READ)
         self.bb.register_key(key=self._key("distance"), access=Access.READ)
         self.bb.register_key(key="/context", access=Access.READ)
@@ -259,7 +259,6 @@ class SafeRetract(_ManipulationNode):
         from mj_manipulator.safe_retract import safe_retract
 
         arm = self.bb.get(self._key("arm"))
-        arm_name = self.bb.get(self._key("arm_name"))
         twist = self.bb.get(self._key("twist"))
         distance = self.bb.get(self._key("distance"))
         ctx = self.bb.get("/context")
@@ -269,15 +268,11 @@ class SafeRetract(_ManipulationNode):
         except KeyError:
             abort_fn = None
 
-        def step_fn(q, qd):
-            ctx.step_cartesian(arm_name, q, qd)
-
         safe_retract(
             arm,
-            step_fn,
+            ctx,
             twist,
             max_distance=distance,
-            dt=ctx.control_dt,
             stop_condition=abort_fn,
         )
         return Status.SUCCESS
