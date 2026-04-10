@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 from mj_environment import Environment
 
-from mj_manipulator.arms.franka import FRANKA_HOME, create_franka_arm
+from mj_manipulator.arms.franka import FRANKA_HOME
 from mj_manipulator.safe_retract import safe_retract
 
 # ---------------------------------------------------------------------------
@@ -262,8 +262,6 @@ class TestSafeRetractCollision:
         with a surface when the lift starts. safe_retract records this as
         a baseline and only aborts on *new* pairs.
         """
-        import mujoco
-
         from mj_manipulator.sim_context import SimContext
 
         arm = franka_arm_at_home
