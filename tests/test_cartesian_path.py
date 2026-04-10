@@ -32,17 +32,13 @@ class TestTranslationalWaypoints:
     def test_basic_lift_generates_expected_count(self):
         """15 cm lift with 5 mm spacing → 30 waypoints."""
         start = np.eye(4)
-        wps = translational_waypoints(
-            start, np.array([0.0, 0.0, 1.0]), distance=0.15, segment_length=0.005
-        )
+        wps = translational_waypoints(start, np.array([0.0, 0.0, 1.0]), distance=0.15, segment_length=0.005)
         assert len(wps) == 30
 
     def test_final_waypoint_at_exact_distance(self):
         """Last waypoint is exactly at start + direction * distance."""
         start = np.eye(4)
-        wps = translational_waypoints(
-            start, np.array([0.0, 0.0, 1.0]), distance=0.15, segment_length=0.005
-        )
+        wps = translational_waypoints(start, np.array([0.0, 0.0, 1.0]), distance=0.15, segment_length=0.005)
         np.testing.assert_allclose(wps[-1][:3, 3], [0.0, 0.0, 0.15], atol=1e-12)
 
     def test_waypoints_preserve_orientation(self):
@@ -57,9 +53,7 @@ class TestTranslationalWaypoints:
                 [-np.sin(theta), 0, np.cos(theta)],
             ]
         )
-        wps = translational_waypoints(
-            start, np.array([0.0, 0.0, 1.0]), distance=0.1, segment_length=0.01
-        )
+        wps = translational_waypoints(start, np.array([0.0, 0.0, 1.0]), distance=0.1, segment_length=0.01)
         for w in wps:
             np.testing.assert_allclose(w[:3, :3], start[:3, :3], atol=1e-12)
 
@@ -67,9 +61,7 @@ class TestTranslationalWaypoints:
         """Passing a non-unit direction vector still produces correct geometry."""
         start = np.eye(4)
         # Direction magnitude = 2, but distance is still 0.15 m
-        wps = translational_waypoints(
-            start, np.array([0.0, 0.0, 2.0]), distance=0.15, segment_length=0.005
-        )
+        wps = translational_waypoints(start, np.array([0.0, 0.0, 2.0]), distance=0.15, segment_length=0.005)
         np.testing.assert_allclose(wps[-1][:3, 3], [0.0, 0.0, 0.15], atol=1e-12)
 
     def test_arbitrary_direction(self):
@@ -83,27 +75,21 @@ class TestTranslationalWaypoints:
     def test_short_distance_produces_one_waypoint(self):
         """distance < segment_length → exactly one waypoint at the full distance."""
         start = np.eye(4)
-        wps = translational_waypoints(
-            start, np.array([0.0, 0.0, 1.0]), distance=0.002, segment_length=0.005
-        )
+        wps = translational_waypoints(start, np.array([0.0, 0.0, 1.0]), distance=0.002, segment_length=0.005)
         assert len(wps) == 1
         np.testing.assert_allclose(wps[0][:3, 3], [0.0, 0.0, 0.002], atol=1e-12)
 
     def test_zero_direction_returns_empty(self):
         """Zero-magnitude direction vector → empty waypoint list."""
         start = np.eye(4)
-        wps = translational_waypoints(
-            start, np.zeros(3), distance=0.15, segment_length=0.005
-        )
+        wps = translational_waypoints(start, np.zeros(3), distance=0.15, segment_length=0.005)
         assert wps == []
 
     def test_start_pose_translation_preserved(self):
         """Waypoints are offset from the start pose's translation, not origin."""
         start = np.eye(4)
         start[:3, 3] = [0.5, -0.2, 0.3]
-        wps = translational_waypoints(
-            start, np.array([0.0, 0.0, 1.0]), distance=0.1, segment_length=0.05
-        )
+        wps = translational_waypoints(start, np.array([0.0, 0.0, 1.0]), distance=0.1, segment_length=0.05)
         np.testing.assert_allclose(wps[-1][:3, 3], [0.5, -0.2, 0.4], atol=1e-12)
 
 
@@ -163,9 +149,7 @@ class TestPlanCartesianPathHappy:
         """A 10 cm +Z lift from home yields a valid, non-empty trajectory."""
         arm = franka_arm_at_home
         start = arm.get_ee_pose()
-        wps = translational_waypoints(
-            start, np.array([0.0, 0.0, 1.0]), distance=0.1, segment_length=0.005
-        )
+        wps = translational_waypoints(start, np.array([0.0, 0.0, 1.0]), distance=0.1, segment_length=0.005)
         traj = plan_cartesian_path(arm, wps)
 
         assert traj.dof == 7
@@ -178,9 +162,7 @@ class TestPlanCartesianPathHappy:
         arm = franka_arm_at_home
         start = arm.get_ee_pose()
         target_z = start[2, 3] + 0.1
-        wps = translational_waypoints(
-            start, np.array([0.0, 0.0, 1.0]), distance=0.1, segment_length=0.005
-        )
+        wps = translational_waypoints(start, np.array([0.0, 0.0, 1.0]), distance=0.1, segment_length=0.005)
         traj = plan_cartesian_path(arm, wps)
 
         # Forward-kinematics the last waypoint and check the EE z.
@@ -202,9 +184,7 @@ class TestPlanCartesianPathHappy:
         """
         arm = franka_arm_at_home
         start = arm.get_ee_pose()
-        wps = translational_waypoints(
-            start, np.array([0.0, 0.0, 1.0]), distance=0.1, segment_length=0.005
-        )
+        wps = translational_waypoints(start, np.array([0.0, 0.0, 1.0]), distance=0.1, segment_length=0.005)
         traj = plan_cartesian_path(arm, wps)
 
         # Check first, middle, and last waypoint
@@ -226,9 +206,7 @@ class TestPlanCartesianPathHappy:
         start = arm.get_ee_pose()
         # 80 cm lift — Franka reach is ~85 cm, so the very top will be
         # unreachable but the first ~30 cm should plan fine.
-        wps = translational_waypoints(
-            start, np.array([0.0, 0.0, 1.0]), distance=0.8, segment_length=0.01
-        )
+        wps = translational_waypoints(start, np.array([0.0, 0.0, 1.0]), distance=0.8, segment_length=0.01)
 
         # Without partial_ok, should raise.
         with pytest.raises(ValueError, match="no valid IK solution"):
@@ -246,8 +224,7 @@ class TestPlanCartesianPathHappy:
         final_pose = arm.forward_kinematics(final_q)
         lifted = final_pose[2, 3] - start[2, 3]
         assert 0.05 < lifted < 0.8, (
-            f"Partial lift should be a positive fraction of the commanded "
-            f"distance, got {lifted * 1000:.1f} mm"
+            f"Partial lift should be a positive fraction of the commanded distance, got {lifted * 1000:.1f} mm"
         )
 
     def test_partial_ok_first_waypoint_infeasible_raises(self, franka_arm_at_home):
@@ -278,9 +255,7 @@ class TestPlanCartesianPathHappy:
 
         # FK from FRANKA_HOME — not the current (perturbed) pose
         start_pose_at_home = arm.forward_kinematics(FRANKA_HOME)
-        wps = translational_waypoints(
-            start_pose_at_home, np.array([0.0, 0.0, 1.0]), 0.05, segment_length=0.005
-        )
+        wps = translational_waypoints(start_pose_at_home, np.array([0.0, 0.0, 1.0]), 0.05, segment_length=0.005)
         traj = plan_cartesian_path(arm, wps, q_start=FRANKA_HOME)
 
         # First trajectory waypoint should be FRANKA_HOME (the retimer seeds

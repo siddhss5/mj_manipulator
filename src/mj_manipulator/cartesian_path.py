@@ -110,25 +110,20 @@ def plan_cartesian_path(
     """
     if arm.ik_solver is None:
         raise RuntimeError(
-            f"plan_cartesian_path requires an arm with an IK solver; "
-            f"arm '{arm.config.name}' was created without one."
+            f"plan_cartesian_path requires an arm with an IK solver; arm '{arm.config.name}' was created without one."
         )
 
     if not waypoints:
         raise ValueError("plan_cartesian_path: waypoints must be non-empty")
 
-    q_current = (
-        arm.get_joint_positions().copy() if q_start is None else np.asarray(q_start, dtype=float).copy()
-    )
+    q_current = arm.get_joint_positions().copy() if q_start is None else np.asarray(q_start, dtype=float).copy()
 
     joint_path: list[np.ndarray] = [q_current]
 
     for i, pose in enumerate(waypoints):
         pose = np.asarray(pose, dtype=float)
         if pose.shape != (4, 4):
-            raise ValueError(
-                f"plan_cartesian_path: waypoint {i} has shape {pose.shape}, expected (4, 4)"
-            )
+            raise ValueError(f"plan_cartesian_path: waypoint {i} has shape {pose.shape}, expected (4, 4)")
 
         solutions = arm.ik_solver.solve_valid(pose, q_init=q_current)
         if not solutions:
@@ -142,8 +137,7 @@ def plan_cartesian_path(
                 )
                 break
             raise ValueError(
-                f"plan_cartesian_path: no valid IK solution at waypoint {i} "
-                f"(pose translation = {pose[:3, 3]})"
+                f"plan_cartesian_path: no valid IK solution at waypoint {i} (pose translation = {pose[:3, 3]})"
             )
 
         q_next = min(solutions, key=lambda q: float(np.linalg.norm(q - q_current)))

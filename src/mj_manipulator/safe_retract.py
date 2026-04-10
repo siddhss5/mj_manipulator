@@ -103,8 +103,7 @@ def safe_retract(
     """
     if not np.allclose(twist[3:], 0.0):
         raise NotImplementedError(
-            "safe_retract currently handles translational twists only; "
-            f"got angular components {twist[3:]}"
+            f"safe_retract currently handles translational twists only; got angular components {twist[3:]}"
         )
 
     linear = np.asarray(twist[:3], dtype=float)

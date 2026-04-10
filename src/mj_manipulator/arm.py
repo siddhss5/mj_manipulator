@@ -220,10 +220,7 @@ class Arm:
         # sag at rest and tracking lag in motion.
         first_joint_body = model.jnt_bodyid[self.joint_ids[0]]
         base_body_id = model.body_parentid[first_joint_body]
-        subtree_has_gravcomp = any(
-            model.body_gravcomp[bid] > 0
-            for bid in range(base_body_id, model.nbody)
-        )
+        subtree_has_gravcomp = any(model.body_gravcomp[bid] > 0 for bid in range(base_body_id, model.nbody))
         if not subtree_has_gravcomp:
             logger.warning(
                 "Arm '%s' has no gravity compensation on its kinematic "

@@ -201,9 +201,7 @@ class TestSimContextExecution:
     # with (does not replace) the ownership-registry abort and the
     # context-level abort: any of the three returning True stops execution.
 
-    def test_execute_accepts_abort_fn_none_backwards_compat(
-        self, model_and_data, mock_arm
-    ):
+    def test_execute_accepts_abort_fn_none_backwards_compat(self, model_and_data, mock_arm):
         """Calling ctx.execute(traj) without abort_fn still works (default=None)."""
         model, data = model_and_data
         with SimContext(
@@ -220,9 +218,7 @@ class TestSimContextExecution:
             # No abort_fn passed — should run to completion.
             assert ctx.execute(traj) is True
 
-    def test_execute_caller_abort_fn_runs_to_completion_when_false(
-        self, model_and_data, mock_arm
-    ):
+    def test_execute_caller_abort_fn_runs_to_completion_when_false(self, model_and_data, mock_arm):
         """A caller abort_fn that always returns False doesn't interfere."""
         model, data = model_and_data
         with SimContext(
@@ -247,9 +243,7 @@ class TestSimContextExecution:
             # kinematic mode) — proves the parameter was plumbed through.
             assert call_count["n"] >= 1
 
-    def test_execute_caller_abort_fn_short_circuits_when_true(
-        self, model_and_data, mock_arm
-    ):
+    def test_execute_caller_abort_fn_short_circuits_when_true(self, model_and_data, mock_arm):
         """A caller abort_fn that returns True halts execution."""
         model, data = model_and_data
         with SimContext(
@@ -271,9 +265,7 @@ class TestSimContextExecution:
             for idx in mock_arm.joint_qpos_indices:
                 assert abs(data.qpos[idx]) < 1e-6
 
-    def test_execute_context_abort_fn_still_composes(
-        self, model_and_data, mock_arm
-    ):
+    def test_execute_context_abort_fn_still_composes(self, model_and_data, mock_arm):
         """The context-level abort_fn (set at construction) still fires
         alongside the caller-provided abort_fn."""
         model, data = model_and_data

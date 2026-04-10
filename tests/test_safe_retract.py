@@ -251,9 +251,7 @@ class TestSafeRetractCollision:
         z_travel = end_pos[2] - start_pos[2]
 
         # Expect to stop well before 15 cm — somewhere in (1 cm, 10 cm).
-        assert 0.01 < z_travel < 0.10, (
-            f"Expected early stop, got z_travel={z_travel * 1000:.1f}mm"
-        )
+        assert 0.01 < z_travel < 0.10, f"Expected early stop, got z_travel={z_travel * 1000:.1f}mm"
 
     def test_tolerates_baseline_contact(self, franka_arm_at_home):
         """An object already in contact at t=0 does not abort the lift.

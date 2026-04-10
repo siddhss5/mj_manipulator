@@ -342,9 +342,7 @@ class SimContext:
         if self._event_loop is not None:
             # Kinematic with event loop: legacy blocking dispatch
             self._event_loop._deactivate_all_teleop()
-            return self._event_loop.run_on_physics_thread(
-                lambda: self._execute_impl(item, abort_fn=abort_fn)
-            )
+            return self._event_loop.run_on_physics_thread(lambda: self._execute_impl(item, abort_fn=abort_fn))
 
         return self._execute_impl(item, abort_fn=abort_fn)
 
@@ -427,6 +425,7 @@ class SimContext:
                 # No ownership registry — still compose context + caller
                 ctx_abort = self._abort_fn
                 if caller_abort is not None or ctx_abort is not None:
+
                     def _abort(ca=caller_abort, cx=ctx_abort) -> bool:
                         if cx is not None and cx():
                             return True

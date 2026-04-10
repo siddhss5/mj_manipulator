@@ -232,8 +232,17 @@ def add_franka_gravcomp(spec: mujoco.MjSpec) -> None:
         spec: MjSpec loaded from a Franka scene XML.
     """
     _FRANKA_BODIES = [
-        "link0", "link1", "link2", "link3", "link4", "link5", "link6",
-        "link7", "hand", "left_finger", "right_finger",
+        "link0",
+        "link1",
+        "link2",
+        "link3",
+        "link4",
+        "link5",
+        "link6",
+        "link7",
+        "hand",
+        "left_finger",
+        "right_finger",
     ]
     for name in _FRANKA_BODIES:
         body = spec.body(name)
