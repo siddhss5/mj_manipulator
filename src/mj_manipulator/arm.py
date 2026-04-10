@@ -209,6 +209,32 @@ class Arm:
         self.dof: int = len(config.joint_names)
         self._joint_limits: tuple[np.ndarray, np.ndarray] | None = None
 
+        # Check whether gravity compensation is active on the arm subtree.
+        # MuJoCo optimizes gravcomp away at compile time if every body has
+        # gravcomp=0, and runtime changes to body_gravcomp are silently
+        # ignored. The per-arm MjSpec helpers (add_franka_gravcomp,
+        # add_ur5e_gravcomp) must be called BEFORE spec.compile(). Real
+        # robot controllers (Franka FCI, UR RTDE, KUKA FRI, etc.) run
+        # gravity compensation internally; without it in sim, the PD loop
+        # must fight gravity via steady-state position error, producing
+        # sag at rest and tracking lag in motion.
+        first_joint_body = model.jnt_bodyid[self.joint_ids[0]]
+        base_body_id = model.body_parentid[first_joint_body]
+        subtree_has_gravcomp = any(
+            model.body_gravcomp[bid] > 0
+            for bid in range(base_body_id, model.nbody)
+        )
+        if not subtree_has_gravcomp:
+            logger.warning(
+                "Arm '%s' has no gravity compensation on its kinematic "
+                "subtree. Call add_%s_gravcomp(spec) BEFORE spec.compile() "
+                "(or bake gravcomp='1' into the source XML). Without it, "
+                "the PD loop must fight gravity via steady-state position "
+                "error, producing sag at rest and tracking lag in motion.",
+                config.name,
+                config.name,
+            )
+
         # Resolve F/T sensor indices (if configured)
         self._ft_force_adr: int | None = None
         self._ft_torque_adr: int | None = None

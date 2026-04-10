@@ -189,6 +189,7 @@ def _setup_franka(objects):
     from mj_manipulator.arms.franka import (
         FRANKA_HOME,
         add_franka_ee_site,
+        add_franka_gravcomp,
         create_franka_arm,
         fix_franka_grip_force,
     )
@@ -206,6 +207,7 @@ def _setup_franka(objects):
     # which handles objects + registry with native path resolution.
     spec = mujoco.MjSpec.from_file(str(scene_path))
     add_franka_ee_site(spec)
+    add_franka_gravcomp(spec)
 
     if objects:
         from prl_assets import OBJECTS_DIR
