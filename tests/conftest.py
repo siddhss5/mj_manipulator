@@ -92,6 +92,48 @@ def mock_arm(model_and_data):
 
 
 @pytest.fixture
+def franka_env_with_gravcomp():
+    """Build a Franka ``Environment`` with the EE site and gravcomp enabled.
+
+    Skips the test if the menagerie is not available. Used by tests that
+    need a real arm with an IK solver and physics-mode behavior (e.g.
+    safe_retract, plan_cartesian_path integration tests).
+    """
+    try:
+        from mj_environment import Environment
+
+        from mj_manipulator.arms.franka import add_franka_ee_site, add_franka_gravcomp
+        from mj_manipulator.menagerie import menagerie_scene
+    except (ImportError, FileNotFoundError):
+        pytest.skip("mujoco_menagerie or mj_environment not available")
+
+    try:
+        scene = menagerie_scene("franka_emika_panda")
+    except FileNotFoundError:
+        pytest.skip("mujoco_menagerie not found")
+
+    spec = mujoco.MjSpec.from_file(str(scene))
+    add_franka_ee_site(spec)
+    add_franka_gravcomp(spec)
+    return Environment.from_model(spec.compile())
+
+
+@pytest.fixture
+def franka_arm_at_home(franka_env_with_gravcomp):
+    """Franka arm constructed at FRANKA_HOME, ready for physics tests."""
+    from mj_manipulator.arms.franka import FRANKA_HOME, create_franka_arm
+
+    env = franka_env_with_gravcomp
+    arm = create_franka_arm(env)
+    for i, idx in enumerate(arm.joint_qpos_indices):
+        env.data.qpos[idx] = FRANKA_HOME[i]
+    for idx in arm.joint_qvel_indices:
+        env.data.qvel[idx] = 0.0
+    mujoco.mj_forward(env.model, env.data)
+    return arm
+
+
+@pytest.fixture
 def joint_qpos_indices(model_and_data):
     model, _ = model_and_data
     return [model.jnt_qposadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)] for name in JOINT_NAMES]

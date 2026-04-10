@@ -195,6 +195,104 @@ class TestSimContextExecution:
             with pytest.raises(ValueError, match="No executor"):
                 ctx.execute(traj)
 
+    # --- abort_fn parameter ------------------------------------------------
+    # The abort_fn parameter lets callers halt a trajectory mid-execution
+    # based on real-time signals (e.g. a new collision contact). It composes
+    # with (does not replace) the ownership-registry abort and the
+    # context-level abort: any of the three returning True stops execution.
+
+    def test_execute_accepts_abort_fn_none_backwards_compat(
+        self, model_and_data, mock_arm
+    ):
+        """Calling ctx.execute(traj) without abort_fn still works (default=None)."""
+        model, data = model_and_data
+        with SimContext(
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
+        ) as ctx:
+            traj = make_trajectory(
+                np.array([[0.0, 0.0], [0.1, 0.1], [0.2, 0.2]]),
+                entity="test_arm",
+            )
+            # No abort_fn passed — should run to completion.
+            assert ctx.execute(traj) is True
+
+    def test_execute_caller_abort_fn_runs_to_completion_when_false(
+        self, model_and_data, mock_arm
+    ):
+        """A caller abort_fn that always returns False doesn't interfere."""
+        model, data = model_and_data
+        with SimContext(
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
+        ) as ctx:
+            traj = make_trajectory(
+                np.array([[0.0, 0.0], [0.1, 0.1], [0.2, 0.2]]),
+                entity="test_arm",
+            )
+            call_count = {"n": 0}
+
+            def never_abort():
+                call_count["n"] += 1
+                return False
+
+            assert ctx.execute(traj, abort_fn=never_abort) is True
+            # abort_fn was invoked at least once (pre-flight check in
+            # kinematic mode) — proves the parameter was plumbed through.
+            assert call_count["n"] >= 1
+
+    def test_execute_caller_abort_fn_short_circuits_when_true(
+        self, model_and_data, mock_arm
+    ):
+        """A caller abort_fn that returns True halts execution."""
+        model, data = model_and_data
+        with SimContext(
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
+        ) as ctx:
+            traj = make_trajectory(
+                np.array([[0.0, 0.0], [0.1, 0.1], [0.2, 0.2]]),
+                entity="test_arm",
+            )
+            # abort_fn fires immediately — the kinematic path should
+            # short-circuit before running the trajectory at all.
+            assert ctx.execute(traj, abort_fn=lambda: True) is False
+            # And qpos should still be at the starting zero, not the
+            # final [0.2, 0.2].
+            for idx in mock_arm.joint_qpos_indices:
+                assert abs(data.qpos[idx]) < 1e-6
+
+    def test_execute_context_abort_fn_still_composes(
+        self, model_and_data, mock_arm
+    ):
+        """The context-level abort_fn (set at construction) still fires
+        alongside the caller-provided abort_fn."""
+        model, data = model_and_data
+        with SimContext(
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
+            abort_fn=lambda: True,  # always-abort context-level
+        ) as ctx:
+            traj = make_trajectory(
+                np.array([[0.0, 0.0], [0.1, 0.1], [0.2, 0.2]]),
+                entity="test_arm",
+            )
+            # Caller says "never abort", but context says "always abort"
+            # — the OR should fire, execution halts.
+            assert ctx.execute(traj, abort_fn=lambda: False) is False
+
 
 class TestSimContextStep:
     def test_step_physics_with_targets(self, model_and_data, mock_arm):
