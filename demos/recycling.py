@@ -53,9 +53,15 @@ from tsr.placement import StablePlacer
 from mj_manipulator.arms.franka import (
     FRANKA_HOME,
     add_franka_ee_site,
+    add_franka_gravcomp,
     create_franka_arm,
 )
-from mj_manipulator.arms.ur5e import UR5E_HOME, UR5E_ROBOTIQ_EE_SITE, create_ur5e_arm
+from mj_manipulator.arms.ur5e import (
+    UR5E_HOME,
+    UR5E_ROBOTIQ_EE_SITE,
+    add_ur5e_gravcomp,
+    create_ur5e_arm,
+)
 from mj_manipulator.cartesian import CartesianController
 from mj_manipulator.config import PhysicsConfig, PhysicsExecutionConfig
 from mj_manipulator.grasp_manager import GraspManager
@@ -286,6 +292,7 @@ def setup_ur5e():
             sys.exit(1)
 
     spec = mujoco.MjSpec.from_file(str(UR5E_SCENE))
+    add_ur5e_gravcomp(spec)
     robotiq_spec = mujoco.MjSpec.from_file(str(ROBOTIQ_MODEL))
 
     # Attach Robotiq 2F-140 at the UR5e flange
@@ -307,6 +314,7 @@ def setup_franka():
 
     spec = mujoco.MjSpec.from_file(str(FRANKA_SCENE))
     add_franka_ee_site(spec)
+    add_franka_gravcomp(spec)
 
     _add_table_and_cans(spec)
     return _compile_and_create_arm(spec, "franka")

@@ -25,9 +25,10 @@ from mj_environment import Environment
 from mj_manipulator.arms.franka import (
     FRANKA_HOME,
     add_franka_ee_site,
+    add_franka_gravcomp,
     create_franka_arm,
 )
-from mj_manipulator.arms.ur5e import UR5E_HOME, create_ur5e_arm
+from mj_manipulator.arms.ur5e import UR5E_HOME, add_ur5e_gravcomp, create_ur5e_arm
 from mj_manipulator.config import PhysicsConfig, PhysicsExecutionConfig
 from mj_manipulator.menagerie import menagerie_scene
 from mj_manipulator.sim_context import SimContext
@@ -174,7 +175,9 @@ def main():
     )
 
     # --- UR5e (6-DOF) ---
-    ur5e_env = Environment(str(UR5E_SCENE))
+    ur5e_spec = mujoco.MjSpec.from_file(str(UR5E_SCENE))
+    add_ur5e_gravcomp(ur5e_spec)
+    ur5e_env = Environment.from_model(ur5e_spec.compile())
     ur5e = create_ur5e_arm(ur5e_env, with_ik=False)
     _set_arm_positions(ur5e, ur5e_env, UR5E_HOME)
 
@@ -187,13 +190,8 @@ def main():
     # --- Franka Panda (7-DOF) ---
     spec = mujoco.MjSpec.from_file(str(FRANKA_SCENE))
     add_franka_ee_site(spec)
-    franka_dir = FRANKA_SCENE.parent
-    tmp_path = franka_dir / "_demo_franka_ee.xml"
-    try:
-        tmp_path.write_text(spec.to_xml())
-        franka_env = Environment(str(tmp_path))
-    finally:
-        tmp_path.unlink(missing_ok=True)
+    add_franka_gravcomp(spec)
+    franka_env = Environment.from_model(spec.compile())
 
     franka = create_franka_arm(franka_env, with_ik=False)
     _set_arm_positions(franka, franka_env, FRANKA_HOME)

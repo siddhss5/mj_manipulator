@@ -14,7 +14,12 @@ from mj_environment import Environment
 from prl_assets import OBJECTS_DIR
 from tsr.hands import FrankaHand
 
-from mj_manipulator.arms.franka import FRANKA_HOME, add_franka_ee_site, create_franka_arm
+from mj_manipulator.arms.franka import (
+    FRANKA_HOME,
+    add_franka_ee_site,
+    add_franka_gravcomp,
+    create_franka_arm,
+)
 from mj_manipulator.grasp_manager import GraspManager
 from mj_manipulator.grippers.franka import FrankaGripper
 from mj_manipulator.sim_context import SimContext
@@ -28,6 +33,7 @@ spec = mujoco.MjSpec.from_file(
     str(__import__("mj_manipulator.menagerie", fromlist=["menagerie_scene"]).menagerie_scene("franka_emika_panda"))
 )
 add_franka_ee_site(spec)
+add_franka_gravcomp(spec)
 
 table = spec.worldbody.add_body()
 table.name = "table"
