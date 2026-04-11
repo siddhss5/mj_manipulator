@@ -17,6 +17,7 @@ from mj_manipulator.contacts import iter_contacts
 
 if TYPE_CHECKING:
     from mj_manipulator.grasp_manager import GraspManager
+    from mj_manipulator.grasp_verifier import GraspVerifier
 
 
 class _BaseGripper:
@@ -53,6 +54,7 @@ class _BaseGripper:
         self._ctrl_open = ctrl_open
         self._ctrl_closed = ctrl_closed
         self._grasp_manager = grasp_manager
+        self._grasp_verifier: GraspVerifier | None = None
         self._candidate_objects: list[str] | None = None
 
         # Resolve actuator ID
@@ -102,16 +104,40 @@ class _BaseGripper:
 
     @property
     def is_holding(self) -> bool:
+        if self._grasp_verifier is not None:
+            return self._grasp_verifier.is_held
         if self._grasp_manager is None:
             return False
         return len(self._grasp_manager.get_grasped_by(self._arm_name)) > 0
 
     @property
     def held_object(self) -> str | None:
+        if self._grasp_verifier is not None:
+            return self._grasp_verifier.held_object
         if self._grasp_manager is None:
             return None
         held = self._grasp_manager.get_grasped_by(self._arm_name)
         return held[0] if held else None
+
+    @property
+    def grasp_verifier(self) -> GraspVerifier | None:
+        """Sensor-based grasp health check, if configured.
+
+        When set, :attr:`is_holding` and :attr:`held_object` route
+        through the verifier instead of reading from
+        :class:`GraspManager` bookkeeping. Set this after
+        constructing the gripper and the signal sources it needs —
+        see :class:`GraspVerifier` for wiring examples.
+
+        Leaving it unset preserves the legacy path (``is_holding``
+        reads ``GraspManager``), which is the current default
+        everywhere and requires no per-robot changes.
+        """
+        return self._grasp_verifier
+
+    @grasp_verifier.setter
+    def grasp_verifier(self, verifier: GraspVerifier | None) -> None:
+        self._grasp_verifier = verifier
 
     def set_candidate_objects(self, objects: list[str] | None) -> None:
         self._candidate_objects = objects

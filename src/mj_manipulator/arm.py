@@ -371,6 +371,33 @@ class Arm:
         """Current joint velocities (rad/s)."""
         return np.array([self.env.data.qvel[idx] for idx in self.joint_qvel_indices])
 
+    def get_joint_torques(self) -> np.ndarray:
+        """Current joint-torque vector (N·m per joint).
+
+        Returns ``qfrc_actuator`` for this arm's joints — the torque each
+        actuator applies to the joint. With gravity compensation active,
+        this reduces (at rest) largely to whatever external load the arm
+        is working against: the weight of a held object, contact forces,
+        etc. That makes it a useful load signal for arms whose only load
+        sensing is at the joints (e.g. Franka via ``tau_ext``), parallel
+        to :meth:`get_ft_wrench` for arms with a wrist F/T sensor.
+
+        Returns NaN when ``ft_valid`` is False — the same validity gate
+        as F/T. Kinematic sim doesn't run physics integration, so
+        ``qfrc_actuator`` is meaningless there. On real hardware the
+        ``HardwareContext`` supplies the driver's external-torque
+        estimate and sets ``ft_valid = True``.
+
+        Returns:
+            np.ndarray of shape ``(dof,)``: actuator torques in N·m,
+            indexed to match ``get_joint_positions()``. All NaN if joint
+            torque data is not currently meaningful.
+        """
+        if not self.ft_valid:
+            return np.full(self.dof, np.nan)
+        data = self.env.data
+        return np.array([data.qfrc_actuator[idx] for idx in self.joint_qvel_indices])
+
     def get_ft_wrench(self) -> np.ndarray:
         """Current wrist force/torque reading as [fx, fy, fz, tx, ty, tz].
 

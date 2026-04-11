@@ -196,3 +196,95 @@ class TestArmFactoryIntegration:
         assert arm.gripper is gripper
         assert arm.grasp_manager is gm
         assert isinstance(arm.gripper, Gripper)
+
+
+# ---------------------------------------------------------------------------
+# GraspVerifier integration: real FrankaGripper + fake load signals
+#
+# This verifies that _BaseGripper.is_holding / held_object correctly route
+# through the verifier when one is attached, exercising the routing change
+# from personalrobotics/mj_manipulator#93 on a real gripper class (not a
+# stub). The signal values themselves are fake so the test is fast and
+# deterministic; physics-loop grasp validation happens end-to-end in the
+# recycling demo on geodude.
+# ---------------------------------------------------------------------------
+
+
+class _FakeSignal:
+    """Minimal LoadSignal stub for integration tests."""
+
+    def __init__(self, name: str, value: float | None):
+        self.name = name
+        self.value = value
+
+    def read(self) -> float | None:
+        return self.value
+
+
+class TestFrankaGripperWithGraspVerifier:
+    def _attach_verifier(self, gripper: FrankaGripper) -> tuple:
+        """Wire up a GraspVerifier with one fake signal and ensure the
+        gripper is open so the ``empty_at_fully_closed=True`` branch
+        doesn't immediately short-circuit is_held to False.
+
+        Returns (verifier, signal).
+        """
+        from mj_manipulator.grasp_verifier import GraspVerifier
+
+        gripper.kinematic_open()
+        signal = _FakeSignal("wrist_ft_force", value=10.0)
+        verifier = GraspVerifier(gripper=gripper, signals=[signal])
+        gripper.grasp_verifier = verifier
+        return verifier, signal
+
+    def test_is_holding_routes_through_verifier(self, franka_gripper):
+        """When a verifier is attached, is_holding should reflect
+        verifier.is_held, not GraspManager bookkeeping."""
+        verifier, _ = self._attach_verifier(franka_gripper)
+        assert franka_gripper.is_holding is False
+        verifier.mark_grasped("fake_cube")
+        assert franka_gripper.is_holding is True
+
+    def test_held_object_routes_through_verifier(self, franka_gripper):
+        """held_object should return what the verifier says, not what
+        GraspManager thinks."""
+        verifier, _ = self._attach_verifier(franka_gripper)
+        assert franka_gripper.held_object is None
+        verifier.mark_grasped("fake_cube")
+        assert franka_gripper.held_object == "fake_cube"
+
+    def test_signal_collapse_flips_held_object_to_none(self, franka_gripper):
+        """Regression for geodude#173: if the load signal collapses,
+        held_object should go to None even though mark_grasped was called.
+        This is the whole point of the verifier vs. bookkeeping."""
+        verifier, signal = self._attach_verifier(franka_gripper)
+        verifier.mark_grasped("fake_cube")
+        assert franka_gripper.held_object == "fake_cube"
+        signal.value = 0.5  # load collapsed
+        assert franka_gripper.held_object is None
+        assert franka_gripper.is_holding is False
+
+    def test_mark_released_clears_routing(self, franka_gripper):
+        """After release, the verifier should report empty."""
+        verifier, _ = self._attach_verifier(franka_gripper)
+        verifier.mark_grasped("fake_cube")
+        verifier.mark_released()
+        assert franka_gripper.is_holding is False
+        assert franka_gripper.held_object is None
+
+    def test_verifier_falls_back_without_attachment(self, franka_env):
+        """Sanity: the default path (no verifier) is unchanged — the
+        legacy GraspManager-based is_holding still works."""
+        gm = GraspManager(franka_env.model, franka_env.data)
+        gripper = FrankaGripper(
+            franka_env.model,
+            franka_env.data,
+            "franka",
+            grasp_manager=gm,
+        )
+        assert gripper.grasp_verifier is None
+        assert gripper.is_holding is False
+        # Simulate legacy bookkeeping path
+        gm.mark_grasped("legacy_cube", "franka")
+        assert gripper.is_holding is True
+        assert gripper.held_object == "legacy_cube"

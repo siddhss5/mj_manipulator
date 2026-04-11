@@ -112,6 +112,12 @@ class SimArmController:
                 grasped,
                 gripper.attachment_body,
             )
+            # Also notify the sensor-based verifier if one is wired up.
+            # The verifier captures its signal baseline right here, so a
+            # future is_held query can tell whether the load has dropped
+            # since the grasp completed.
+            if gripper.grasp_verifier is not None:
+                gripper.grasp_verifier.mark_grasped(grasped)
             logger.info("Grasped %s with %s arm", grasped, arm_name)
         elif not grasped:
             logger.info(
@@ -149,6 +155,12 @@ class SimArmController:
             for obj in objects:
                 gm.mark_released(obj)
                 gm.detach_object(obj)
+
+        # Clear the verifier's baseline so is_held returns False after
+        # the release. Release is a hard ground truth — we know we're
+        # letting go, no need to consult sensors.
+        if gripper.grasp_verifier is not None:
+            gripper.grasp_verifier.mark_released()
 
         if self._context._controller is not None:
             self._context._controller.open_gripper(arm_name)
