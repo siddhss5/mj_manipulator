@@ -97,15 +97,58 @@ class GripperPositionSignal:
 
 
 class WristFTSignal:
-    """Wrist F/T force magnitude in newtons, or None in kinematic mode.
+    """Signed vertical (world Z) force at the wrist in newtons.
 
-    Reads :meth:`Arm.get_ft_wrench` and returns the Euclidean norm of
-    its linear (force) component. Returns ``None`` when the arm has
-    no F/T sensor configured or when ``ft_valid`` is False (kinematic
-    sim), which matches the verifier's \"skip this signal\" semantics.
+    Reads :meth:`Arm.get_ft_wrench_world` and returns the Z component
+    of the linear force — the projection of the wrench onto the
+    gravity axis. This is the quantity that *most directly*
+    corresponds to \"is the gripper still holding the object's
+    weight\", because a held object of mass ``m`` contributes a
+    constant ``±m*g`` to the world-Z reading regardless of how the
+    arm is posed. When the object drops, the contribution vanishes
+    and the reading returns to whatever the taread baseline
+    contained (nominally zero, if :meth:`Arm.tare_ft` was called
+    immediately before grasping).
+
+    Why world Z instead of the sensor-local frame:
+
+    - The F/T sensor's local frame rotates with the wrist flange.
+      The same held object projects differently onto each local axis
+      depending on the arm's pose. A signed-Z check in the local
+      frame would need pose-dependent thresholds — not general.
+    - Projecting into the world frame makes the \"how much vertical
+      load am I carrying\" signal pose-independent. Gravity is
+      gravity regardless of how the arm is oriented.
+
+    Why signed Z instead of the total-force magnitude:
+
+    - ``np.linalg.norm(wrench[:3])`` mixes gravity load with lateral
+      contact forces and angular-inertial bleed from each axis. A
+      moving arm with a held object sees the magnitude swing around
+      even when the grip is perfectly healthy, producing false LOST
+      transitions.
+    - The Z component is dominated by gravity (the thing we care
+      about) and only contaminated by vertical acceleration. X/Y
+      inertial forces from lateral motion don't touch it.
+
+    **Caveat — inertial forces during motion.** When the arm is
+    accelerating vertically, the Z reading includes the inertial
+    force of the held object as well as its weight. A hard upward
+    lift makes the reading grow; a hard deceleration at the top of
+    the lift makes it shrink transiently, sometimes below the
+    drop-detection threshold. The verifier's settling window
+    (:attr:`VerifierParams.settling_ticks`) handles the immediate
+    post-grasp transient, but does not handle mid-trajectory motion.
+    Consumers that need reliable mid-motion drop detection should
+    additionally gate verification on arm quiescence (e.g.
+    ``|qvel| < threshold``) — not done in this signal.
+
+    Returns ``None`` when the arm has no F/T sensor configured or
+    when ``ft_valid`` is False (kinematic sim), which matches the
+    verifier's \"skip this signal\" semantics.
     """
 
-    name: str = "wrist_ft_force"
+    name: str = "wrist_ft_force_z"
 
     def __init__(self, arm: Arm):
         self._arm = arm
@@ -113,10 +156,10 @@ class WristFTSignal:
     def read(self) -> float | None:
         if not self._arm.has_ft_sensor:
             return None
-        wrench = self._arm.get_ft_wrench()
-        if np.isnan(wrench[0]):
+        wrench_world = self._arm.get_ft_wrench_world()
+        if np.isnan(wrench_world[0]):
             return None
-        return float(np.linalg.norm(wrench[:3]))
+        return float(wrench_world[2])
 
 
 class JointTorqueSignal:
