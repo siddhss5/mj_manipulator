@@ -225,15 +225,21 @@ class TestFrankaGripperWithGraspVerifier:
     def _attach_verifier(self, gripper: FrankaGripper) -> tuple:
         """Wire up a GraspVerifier with one fake signal and ensure the
         gripper is open so the ``empty_at_fully_closed=True`` branch
-        doesn't immediately short-circuit is_held to False.
+        doesn't immediately short-circuit is_held to False. Uses
+        ``settling_ticks=0`` so the test doesn't need to pump the
+        warmup window.
 
         Returns (verifier, signal).
         """
-        from mj_manipulator.grasp_verifier import GraspVerifier
+        from mj_manipulator.grasp_verifier import GraspVerifier, VerifierParams
 
         gripper.kinematic_open()
         signal = _FakeSignal("wrist_ft_force", value=10.0)
-        verifier = GraspVerifier(gripper=gripper, signals=[signal])
+        verifier = GraspVerifier(
+            gripper=gripper,
+            signals=[signal],
+            params=VerifierParams(settling_ticks=0),
+        )
         gripper.grasp_verifier = verifier
         return verifier, signal
 
@@ -255,12 +261,14 @@ class TestFrankaGripperWithGraspVerifier:
 
     def test_signal_collapse_flips_held_object_to_none(self, franka_gripper):
         """Regression for geodude#173: if the load signal collapses,
-        held_object should go to None even though mark_grasped was called.
-        This is the whole point of the verifier vs. bookkeeping."""
+        the next tick flips the verifier to LOST and held_object goes
+        to None. This is the whole point of the verifier vs. the old
+        GraspManager bookkeeping."""
         verifier, signal = self._attach_verifier(franka_gripper)
         verifier.mark_grasped("fake_cube")
         assert franka_gripper.held_object == "fake_cube"
         signal.value = 0.5  # load collapsed
+        verifier.tick()  # tick observes the drop, state → LOST
         assert franka_gripper.held_object is None
         assert franka_gripper.is_holding is False
 

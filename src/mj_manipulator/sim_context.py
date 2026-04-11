@@ -100,43 +100,93 @@ class SimArmController:
         if self._arm.has_ft_sensor and self._arm.ft_valid:
             self._arm.tare_ft()
 
-        if self._context._controller is not None:
-            # Physics: realistic gripper close with contact detection
-            grasped = self._context._controller.close_gripper(
-                arm_name,
-                candidate_objects=candidates,
-            )
-        else:
-            # Kinematic: close incrementally with contact detection
-            grasped = gripper.kinematic_close()
-            if grasped is None:
-                logger.warning(
-                    "Kinematic grasp: no contact detected%s (gripper pos=%.2f)",
-                    f" with {object_name}" if object_name else "",
-                    gripper.get_actual_position(),
-                )
+        # Resolve which object we think we're grasping. For the BT path
+        # this is always the target name. For the nameless interactive
+        # path (REPL / teleop), we fall back to the legacy
+        # iter_contacts-based detection helper — documented as sim-only
+        # and slated for replacement once PerceptionService (#175) lands.
+        # On real hardware, the nameless path would need geometric
+        # matching from perceived object poses; not our problem yet.
+        target = object_name
+        if target is None:
+            from mj_manipulator.grasp_manager import detect_grasped_object
 
-        if grasped and self._arm.grasp_manager is not None:
-            self._arm.grasp_manager.mark_grasped(grasped, arm_name)
-            self._arm.grasp_manager.attach_object(
-                grasped,
-                gripper.attachment_body,
+            # Close the gripper first so the post-close contact state
+            # reflects what we grabbed.
+            self._run_close(candidates)
+            target = detect_grasped_object(
+                self._arm.env.model,
+                self._arm.env.data,
+                gripper.gripper_body_names,
+                candidate_objects=None,
+                require_bilateral=True,
             )
-            # Also notify the sensor-based verifier if one is wired up.
-            # The verifier captures its signal baseline right here, so a
-            # future is_held query can tell whether the load has dropped
-            # since the grasp completed.
-            if gripper.grasp_verifier is not None:
-                gripper.grasp_verifier.mark_grasped(grasped)
-            logger.info("Grasped %s with %s arm", grasped, arm_name)
-        elif not grasped:
-            logger.info(
-                "Grasp failed: no object detected%s",
-                f" (target was {object_name})" if object_name else "",
-            )
+            if target is None:
+                logger.info("Grasp (no target): no object detected between fingers")
+                self._context.sync()
+                return None
+        else:
+            self._run_close(candidates)
+
+        # Record the grasp in bookkeeping (kinematic weld) and in the
+        # verifier (baseline capture + HOLDING state). The verifier's
+        # tick in the settling window is a no-op; real verification
+        # runs a few ticks later. If the grasp didn't actually succeed
+        # (signals don't support the baseline), the verifier will
+        # transition to LOST during the verification tick pump, and we
+        # undo the mark_grasped so downstream consumers see a clean
+        # failure.
+        if self._arm.grasp_manager is not None:
+            self._arm.grasp_manager.mark_grasped(target, arm_name)
+            self._arm.grasp_manager.attach_object(target, gripper.attachment_body)
+
+        if gripper.grasp_verifier is not None:
+            gripper.grasp_verifier.mark_grasped(target)
+            self._run_grasp_verification_ticks()
+            if not gripper.grasp_verifier.is_held:
+                logger.info("Grasp rejected by verifier: %s with %s arm", target, arm_name)
+                # Undo the bookkeeping — the grasp didn't actually hold.
+                if self._arm.grasp_manager is not None:
+                    self._arm.grasp_manager.mark_released(target)
+                    self._arm.grasp_manager.detach_object(target)
+                gripper.grasp_verifier.mark_released()
+                self._context.sync()
+                return None
+            logger.info("Grasped %s with %s arm (verifier confirmed)", target, arm_name)
+        else:
+            logger.info("Grasped %s with %s arm", target, arm_name)
 
         self._context.sync()
-        return grasped
+        return target
+
+    def _run_close(self, candidates: list[str] | None) -> None:
+        """Dispatch to the physics or kinematic close routine."""
+        gripper = self._arm.gripper
+        arm_name = self._arm.config.name
+        if self._context._controller is not None:
+            self._context._controller.close_gripper(arm_name, candidate_objects=candidates)
+        else:
+            gripper.kinematic_close()  # type: ignore[union-attr]
+
+    def _run_grasp_verification_ticks(self) -> None:
+        """Pump extra physics ticks so the verifier can exit its
+        settling window and run a real drop-detection check.
+
+        Runs ``settling_ticks + 2`` physics steps after
+        :meth:`GraspVerifier.mark_grasped` so the first post-settling
+        tick actually evaluates the signals against the baseline.
+        Otherwise ``grasp()`` would return while the verifier is
+        still in its warmup window, and downstream ``is_held`` reads
+        would be stale.
+        """
+        gripper = self._arm.gripper
+        if gripper is None or gripper.grasp_verifier is None:
+            return
+        if self._context._controller is None:
+            return  # kinematic sim — no physics ticks to run
+        n_ticks = gripper.grasp_verifier._params.settling_ticks + 2
+        for _ in range(n_ticks):
+            self._context._controller.step()
 
     def release(self, object_name: str | None = None) -> None:
         """Open gripper and release held object(s).
@@ -325,6 +375,40 @@ class SimContext:
         self._ownership = None
         return False
 
+    def _make_drop_abort(self) -> Callable[[], bool] | None:
+        """Build an abort predicate that fires when any arm's verifier
+        transitions HOLDING → LOST during a trajectory.
+
+        Snapshots which arms are currently HOLDING at the start of the
+        trajectory. The returned predicate returns True if any of those
+        arms is no longer HOLDING on a subsequent check — meaning the
+        verifier saw a load collapse mid-motion and flipped to LOST.
+        That's the \"we dropped it during transport\" case.
+
+        Returns None if no arm has a verifier, or no arm is currently
+        HOLDING — either way there's nothing to monitor. Skipping the
+        predicate avoids per-tick function-call overhead in the vastly
+        more common case where no grasp is active.
+        """
+        holding_verifiers = []
+        for arm in self._arms.values():
+            gripper = arm.gripper
+            if gripper is None or gripper.grasp_verifier is None:
+                continue
+            if gripper.grasp_verifier.is_held:
+                holding_verifiers.append(gripper.grasp_verifier)
+
+        if not holding_verifiers:
+            return None
+
+        def _drop_check() -> bool:
+            for v in holding_verifiers:
+                if not v.is_held:
+                    return True
+            return False
+
+        return _drop_check
+
     # -- ExecutionContext protocol -------------------------------------------
 
     def execute(
@@ -430,11 +514,14 @@ class SimContext:
                 def _make_abort_fn(e=entity, ca=caller_abort):
                     reg = self._ownership
                     ctx_abort = self._abort_fn
+                    drop_check = self._make_drop_abort()
 
                     def _abort() -> bool:
                         if reg is not None and reg.is_aborted(e):
                             return True
                         if ctx_abort is not None and ctx_abort():
+                            return True
+                        if drop_check is not None and drop_check():
                             return True
                         if ca is not None and ca():
                             return True
@@ -444,12 +531,15 @@ class SimContext:
 
                 runner_abort_fn = _make_abort_fn()
             else:
-                # No ownership registry — still compose context + caller
+                # No ownership registry — still compose context + caller + drop
                 ctx_abort = self._abort_fn
-                if caller_abort is not None or ctx_abort is not None:
+                drop_check = self._make_drop_abort()
+                if caller_abort is not None or ctx_abort is not None or drop_check is not None:
 
-                    def _abort(ca=caller_abort, cx=ctx_abort) -> bool:
+                    def _abort(ca=caller_abort, cx=ctx_abort, dc=drop_check) -> bool:
                         if cx is not None and cx():
+                            return True
+                        if dc is not None and dc():
                             return True
                         if ca is not None and ca():
                             return True

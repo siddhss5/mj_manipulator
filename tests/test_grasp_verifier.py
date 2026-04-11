@@ -25,6 +25,7 @@ from __future__ import annotations
 import pytest
 
 from mj_manipulator.grasp_verifier import (
+    GraspState,
     GraspVerifier,
     VerifierFacts,
     VerifierParams,
@@ -198,44 +199,81 @@ class FakeGripper:
 
 
 class TestGraspVerifier:
-    """Stateful integration of the verifier with fake signals."""
+    """Stateful integration of the verifier with fake signals.
 
-    def _make(self, *, empty_at_fully_closed: bool = False):
+    Tests use ``settling_ticks=0`` so they don't need to pump 5+
+    ticks per assertion. The settling window itself is exercised
+    separately in :class:`TestSettlingWindow`.
+    """
+
+    def _make(self, *, empty_at_fully_closed: bool = False, settling_ticks: int = 0):
         gripper = FakeGripper(position=0.5, empty_at_fully_closed=empty_at_fully_closed)
         signal = FakeSignal(name="wrist_ft_force", value=10.0)
-        verifier = GraspVerifier(gripper=gripper, signals=[signal])
+        verifier = GraspVerifier(
+            gripper=gripper,
+            signals=[signal],
+            params=VerifierParams(settling_ticks=settling_ticks),
+        )
         return verifier, gripper, signal
 
-    def test_fresh_verifier_is_not_held(self):
+    def test_fresh_verifier_is_idle(self):
         verifier, _, _ = self._make()
+        assert verifier.state is GraspState.IDLE
         assert verifier.is_held is False
         assert verifier.held_object is None
         assert verifier.tracked_object is None
 
-    def test_mark_grasped_then_is_held(self):
+    def test_mark_grasped_enters_holding(self):
         verifier, _, _ = self._make()
         verifier.mark_grasped("can_0")
+        assert verifier.state is GraspState.HOLDING
         assert verifier.is_held is True
         assert verifier.held_object == "can_0"
         assert verifier.tracked_object == "can_0"
 
-    def test_signal_collapse_flips_is_held(self):
-        """The canonical regression for geodude#173: load dropped mid-transport."""
+    def test_signal_collapse_transitions_to_lost_on_tick(self):
+        """The canonical regression for geodude#173: load dropped mid-transport.
+
+        With the tick-driven model, mutating the signal does not flip
+        is_held until the next tick runs the verification step.
+        """
         verifier, _, signal = self._make()
         verifier.mark_grasped("can_0")
         assert verifier.is_held is True
 
-        # Object slips — signal drops to near zero
+        # Object slips — signal drops. is_held does NOT change yet.
         signal.value = 0.5
+        assert verifier.is_held is True, "live query should not change state"
+
+        # Next tick runs verification, sees the collapse, flips to LOST.
+        verifier.tick()
+        assert verifier.state is GraspState.LOST
         assert verifier.is_held is False
         assert verifier.held_object is None
         # But we still remember what we *tried* to grasp
         assert verifier.tracked_object == "can_0"
 
+    def test_lost_state_is_sticky(self):
+        """Once LOST, subsequent ticks cannot recover. Only mark_grasped
+        can leave LOST — this matches reality (a dropped object doesn't
+        self-heal) and prevents sensor-noise flicker."""
+        verifier, _, signal = self._make()
+        verifier.mark_grasped("can_0")
+        signal.value = 0.5
+        verifier.tick()
+        assert verifier.state is GraspState.LOST
+
+        # Signal recovers — but we stay LOST.
+        signal.value = 10.0
+        verifier.tick()
+        assert verifier.state is GraspState.LOST
+        assert verifier.is_held is False
+
     def test_mark_released_clears_state(self):
         verifier, _, _ = self._make()
         verifier.mark_grasped("can_0")
         verifier.mark_released()
+        assert verifier.state is GraspState.IDLE
         assert verifier.is_held is False
         assert verifier.held_object is None
         assert verifier.tracked_object is None
@@ -247,36 +285,111 @@ class TestGraspVerifier:
         verifier, _, signal = self._make()
         verifier.mark_grasped("can_0")
         signal.value = None
+        verifier.tick()
         assert verifier.is_held is True
 
-    def test_franka_style_mechanical_stop_triggers_drop(self):
+    def test_franka_style_mechanical_stop_triggers_lost(self):
         """When empty_at_fully_closed=True, reaching the stop should
-        immediately flip is_held to False even if load signals say
-        otherwise."""
+        flip to LOST on the next tick."""
         verifier, gripper, _ = self._make(empty_at_fully_closed=True)
         verifier.mark_grasped("panda_cube")
         assert verifier.is_held is True
         gripper.position = 1.0
+        verifier.tick()
+        assert verifier.state is GraspState.LOST
         assert verifier.is_held is False
 
-    def test_regrasping_updates_baseline(self):
-        """mark_grasped twice — second baseline replaces the first."""
+    def test_regrasping_from_lost_resets_to_holding(self):
+        """mark_grasped from LOST should override and re-enter HOLDING
+        with a new baseline. A second grasp after a drop is still a
+        legitimate grasp."""
         verifier, _, signal = self._make()
         verifier.mark_grasped("can_0")
-        signal.value = 4.0  # heavier object picked up next
+        signal.value = 0.5
+        verifier.tick()
+        assert verifier.state is GraspState.LOST
+
+        # Fresh grasp of a different object.
+        signal.value = 4.0  # heavier
         verifier.mark_grasped("spam_can_0")
-        # New baseline is 4.0, so 3.0 is within 30% drop range
-        signal.value = 3.0
-        assert verifier.is_held is True
+        assert verifier.state is GraspState.HOLDING
         assert verifier.held_object == "spam_can_0"
 
-    def test_tick_is_noop(self):
-        """v1 tick is a placeholder — calling it doesn't blow up and
-        doesn't affect state."""
-        verifier, _, _ = self._make()
-        verifier.mark_grasped("can_0")
+        # New baseline is 4.0, so 3.0 is within 30% drop range.
+        signal.value = 3.0
         verifier.tick()
         assert verifier.is_held is True
+
+    def test_tick_while_idle_is_noop(self):
+        """Ticking in IDLE state should not transition or touch signals."""
+        verifier, _, _ = self._make()
+        verifier.tick()
+        assert verifier.state is GraspState.IDLE
+
+    def test_tick_while_lost_is_noop(self):
+        """Ticking in LOST stays LOST (stickiness verified above)."""
+        verifier, _, signal = self._make()
+        verifier.mark_grasped("can_0")
+        signal.value = 0.0
+        verifier.tick()
+        assert verifier.state is GraspState.LOST
+        verifier.tick()
+        verifier.tick()
+        assert verifier.state is GraspState.LOST
+
+
+class TestSettlingWindow:
+    """Verifies the settling window suppresses drop-detection for N ticks.
+
+    During the window, the physics state is still settling and the F/T
+    reading is transient. Forcing a few ticks of warmup before going
+    live prevents spurious LOST transitions on the first tick after
+    grasp completion.
+    """
+
+    def _make(self, settling_ticks: int = 5):
+        gripper = FakeGripper(position=0.5)
+        signal = FakeSignal(name="wrist_ft_force", value=10.0)
+        verifier = GraspVerifier(
+            gripper=gripper,
+            signals=[signal],
+            params=VerifierParams(settling_ticks=settling_ticks),
+        )
+        return verifier, signal
+
+    def test_ticks_in_settling_window_do_not_transition(self):
+        """Inside the window, even a severe signal drop should not
+        transition to LOST — the assumption is physics hasn't settled."""
+        verifier, signal = self._make(settling_ticks=5)
+        verifier.mark_grasped("can_0")
+        signal.value = 0.0  # would normally trigger LOST
+        for _ in range(5):
+            verifier.tick()
+            assert verifier.state is GraspState.HOLDING, "settling window not honored"
+
+    def test_tick_after_window_evaluates_signals(self):
+        """The (settling_ticks + 1)'th tick is the first one that
+        actually runs drop-detection."""
+        verifier, signal = self._make(settling_ticks=5)
+        verifier.mark_grasped("can_0")
+        signal.value = 0.0
+        for _ in range(5):
+            verifier.tick()
+        # Still holding after settling ticks.
+        assert verifier.state is GraspState.HOLDING
+        # Next tick evaluates.
+        verifier.tick()
+        assert verifier.state is GraspState.LOST
+
+    def test_zero_settling_ticks_evaluates_immediately(self):
+        """With settling_ticks=0, the first tick after mark_grasped
+        runs real verification. This is the knob tests use to avoid
+        pumping dozens of ticks."""
+        verifier, signal = self._make(settling_ticks=0)
+        verifier.mark_grasped("can_0")
+        signal.value = 0.0
+        verifier.tick()
+        assert verifier.state is GraspState.LOST
 
 
 # ---------------------------------------------------------------------------
@@ -299,14 +412,24 @@ class TestBaseGripperRouting:
         # Asserting the principle here would duplicate those.
         pass
 
-    def test_held_object_with_verifier_returns_none_when_not_held(self):
-        """Gripper with verifier, but is_held=False → held_object=None."""
+    def test_held_object_with_verifier_returns_none_when_lost(self):
+        """Gripper with verifier, state LOST → held_object=None.
+
+        The transition happens on tick, not on signal mutation —
+        this matches the tick-driven semantics and means downstream
+        consumers see consistent state until the next control cycle.
+        """
         gripper = FakeGripper()
         signal = FakeSignal(name="wrist_ft_force", value=10.0)
-        verifier = GraspVerifier(gripper=gripper, signals=[signal])
-        # Simulate: mark_grasped, then signal collapses
+        verifier = GraspVerifier(
+            gripper=gripper,
+            signals=[signal],
+            params=VerifierParams(settling_ticks=0),
+        )
         verifier.mark_grasped("can_0")
         signal.value = 0.0
+        verifier.tick()
+        assert verifier.state is GraspState.LOST
         assert verifier.held_object is None
         # But tracked_object still reflects what we thought we grabbed
         assert verifier.tracked_object == "can_0"

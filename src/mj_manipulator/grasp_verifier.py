@@ -3,46 +3,102 @@
 
 """Runtime check for \"is the held object still held\".
 
-The :class:`GraspVerifier` answers a single question: given what we
-told the arm to grasp and what the sensors are reading right now, do
-we still believe the object is in the gripper? It replaces
-contact-inspection-based checks (e.g. the ``iter_contacts`` post-check
-in geodude's original :class:`LiftBase`) that only work in simulation.
+:class:`GraspVerifier` is a small sticky state machine driven by
+per-tick signal verification. It answers a single question — *are
+the live sensor signals consistent with still holding the object we
+grasped?* — from whatever signals the arm actually has (gripper
+position, wrist F/T, joint torques). It replaces contact-inspection
+post-checks like geodude's original `LiftBase._compute_source_contacts`
+that only work in simulation.
 
-The decision logic is split out as a pure function
-:func:`verify_grasp` taking a :class:`VerifierFacts` dataclass, so the
-logic is unit-testable without any simulation state, mocks, or
-hardware. The :class:`GraspVerifier` class is the stateful shell:
-it owns the list of :class:`~mj_manipulator.load_signals.LoadSignal`
-instances, records a baseline at :meth:`mark_grasped` time, and
-assembles facts from live reads when :attr:`is_held` is queried.
+Three states:
 
-Design notes:
+- ``IDLE`` — not tracking a grasp. `is_held` is False.
+- ``HOLDING`` — `mark_grasped` was called, the baseline was captured,
+  and subsequent ticks have agreed with it. `is_held` is True.
+- ``LOST`` — the state machine was in HOLDING and a tick observed a
+  signal collapse. **Sticky**: only the next `mark_grasped` can
+  leave this state. `is_held` is False.
 
-- Signals that return ``None`` from their :meth:`read` method are
-  skipped, not interpreted as lost load. This is how kinematic sim
-  degrades gracefully — every load signal returns ``None`` there and
-  :attr:`is_held` reduces to \"did anyone call ``mark_grasped``?\".
-- The decision function is robot-agnostic. Geodude composes a verifier
-  with ``[GripperPositionSignal(robotiq), WristFTSignal(ur5e)]``;
-  Franka composes one with ``[GripperPositionSignal(panda),
-  JointTorqueSignal(franka)]``. Same class, different signal list.
-- The :attr:`held_object` property is the bookkeeping name (what we
-  told the arm to grasp). It goes to ``None`` when :attr:`is_held`
-  is False, so downstream consumers that currently read
-  ``gripper.held_object`` as \"what am I holding right now?\" get a
-  real answer instead of stale bookkeeping.
+Stickiness matches reality: a dropped object doesn't self-heal, so
+momentarily-flickering signals shouldn't push us back to HOLDING.
+If noise produces false positives, the right fix is a settling
+window (already built in) or an N-consecutive-tick debounce (future).
+
+The decision logic itself lives as a pure function
+:func:`verify_grasp` taking a :class:`VerifierFacts` dataclass, so
+the branch logic is unit-testable without any simulation state,
+mocks, or hardware. :class:`GraspVerifier` is the stateful shell
+that records baselines, ticks on a schedule, and logs transitions.
+
+Design points:
+
+- **Tick-driven, not live-query.** `is_held` is a plain state read,
+  cheap and consistent across multiple reads in the same cycle. The
+  work of re-reading signals happens in :meth:`tick`, which the
+  execution context calls exactly once per control cycle. Consumers
+  never tick manually.
+- **Signals with ``None`` readings are skipped, not treated as
+  failure.** Kinematic sim has no F/T or joint-torque data, so every
+  load signal returns ``None``; the verifier falls back to \"trust
+  that `mark_grasped` was called\" in that mode.
+- **Baseline settling.** Right after `close_gripper` finishes, the
+  constraint solver is still settling and the F/T reading is
+  transient. :class:`VerifierParams.settling_ticks` defaults to 5 —
+  the first 5 ticks after `mark_grasped` don't run drop-detection,
+  they just let physics settle. After that the baseline is live and
+  drops trigger LOST transitions.
+- **Release is explicit, drop detection is observational.** Commanded
+  releases (`SimArmController.release()`) call :meth:`mark_released`
+  directly — the caller's intent is authoritative, and we want
+  `is_held` to flip immediately on the same tick (not after the
+  settling window observes the load drop). The tick-driven
+  observation path is reserved for *unintended* drops: an object
+  slipping from the gripper mid-transport, a grasp that looked
+  successful but wasn't holding, etc. Both paths end in the same
+  ``is_held → False`` signal to downstream consumers.
+- **Robot packages compose their own verifier.** Geodude uses
+  `[GripperPositionSignal(robotiq), WristFTSignal(ur5e)]`; Franka
+  uses `[GripperPositionSignal(panda), JointTorqueSignal(franka)]`.
+  Same class, different signal list.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from mj_manipulator.load_signals import LoadSignal
 
 if TYPE_CHECKING:
     from mj_manipulator.protocols import Gripper
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# State machine primitives
+# ---------------------------------------------------------------------------
+
+
+class GraspState(Enum):
+    """Sticky state for the grasp verifier.
+
+    Transitions:
+
+    - ``mark_grasped(name)``: any state → HOLDING (baseline captured,
+      settling window begins)
+    - ``tick()`` during HOLDING, post-settling, signals collapse:
+      HOLDING → LOST
+    - ``mark_released()``: any state → IDLE (manual override; not
+      called from the normal release path)
+    """
+
+    IDLE = "idle"
+    HOLDING = "holding"
+    LOST = "lost"
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +108,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class VerifierParams:
-    """Tunable parameters for :func:`verify_grasp`.
+    """Tunable parameters for :func:`verify_grasp` and :class:`GraspVerifier`.
 
     Defaults are deliberately conservative — we'd rather declare a
     healthy grasp \"probably dropped\" and let recovery run a sanity
@@ -67,8 +123,17 @@ class VerifierParams:
     load_drop_ratio: float = 0.3
     """Fraction of baseline below which a signal is considered
     collapsed. A signal whose magnitude drops below
-    ``abs(baseline) * (1 - load_drop_ratio)`` triggers a FAILURE
-    verdict. 0.3 = signal must drop by more than 30% from baseline."""
+    ``abs(baseline) * (1 - load_drop_ratio)`` triggers a LOST
+    transition. 0.3 = signal must drop by more than 30% from
+    baseline."""
+
+    settling_ticks: int = 5
+    """Number of ticks after :meth:`GraspVerifier.mark_grasped`
+    during which drop-detection is suppressed. The physics state is
+    still settling right after the gripper finishes closing, and the
+    F/T reading is transient; forcing a few ticks of warmup before
+    the verifier goes live prevents spurious LOST transitions on the
+    first tick after grasp completion. 5 × 8ms = 40ms at 125Hz."""
 
 
 @dataclass
@@ -84,7 +149,7 @@ class VerifierFacts:
 
     object_name: str | None
     """The object the grasp sequence believes it picked up, or None
-    if no grasp is currently in progress."""
+    if no grasp is currently tracked."""
 
     empty_at_fully_closed: bool
     """Does this gripper's ``ctrl_closed`` position mean \"fingers
@@ -109,12 +174,10 @@ def verify_grasp(facts: VerifierFacts, params: VerifierParams) -> bool:
 
     Walks a small decision tree:
 
-    1. **No object tracked** → False (nothing to verify; we're not
-       currently trying to hold anything).
+    1. **No object tracked** → False.
     2. **Decisive empty-stop negative**: if the gripper is a
        fully-closed-means-empty type and the position is at or above
-       the threshold → False. The fingers are touching each other
-       with nothing in between.
+       the threshold → False.
     3. **Load-drop check**: for every signal that has a usable
        baseline and a live reading, check whether the live value has
        collapsed below ``|baseline| * (1 - load_drop_ratio)``. If any
@@ -156,26 +219,18 @@ def verify_grasp(facts: VerifierFacts, params: VerifierParams) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Stateful shell — owns signals, captures baselines, answers queries
+# Stateful shell — owns signals, drives the state machine, ticks per cycle
 # ---------------------------------------------------------------------------
 
 
 class GraspVerifier:
-    """Per-arm \"is the held object still held\" check.
+    """Per-arm sticky state machine for \"is the held object still held\".
 
-    Composes a list of :class:`LoadSignal` instances that the arm
-    actually has (gripper position, wrist F/T, joint torques, ...)
-    and a reference to the gripper (for the ``empty_at_fully_closed``
-    decisive-negative branch). Records a baseline from every signal
-    when :meth:`mark_grasped` is called; the :attr:`is_held` property
-    compares live reads against the baseline via :func:`verify_grasp`.
-
-    The verifier is instantaneous — :attr:`is_held` re-reads every
-    signal each time it's queried. There's no rolling average or
-    debounce in v1; adding one means extending :meth:`tick` and
-    filtering in :meth:`_collect_facts`, but the v1 signals are all
-    physical quantities that already change smoothly, so
-    instantaneous reads are good enough to start with.
+    Composes a list of :class:`LoadSignal` instances the arm actually
+    has (gripper position, wrist F/T, joint torques, ...) and a
+    reference to the gripper (for the ``empty_at_fully_closed``
+    decisive-negative branch). Drives a three-state machine via
+    :meth:`mark_grasped` and per-cycle :meth:`tick` calls.
 
     Example — Geodude (UR5e + Robotiq 2F-140)::
 
@@ -188,15 +243,11 @@ class GraspVerifier:
         )
         robot.left.gripper.grasp_verifier = verifier
 
-    Example — Franka (empty_at_fully_closed=True, joint torques)::
-
-        verifier = GraspVerifier(
-            gripper=franka.gripper,
-            signals=[
-                GripperPositionSignal(franka.gripper),
-                JointTorqueSignal(franka.arm),
-            ],
-        )
+    The verifier never ticks itself. The execution context
+    (:class:`SimContext`) ticks every configured verifier exactly
+    once per control cycle inside :meth:`SimContext.step` and inside
+    every trajectory execution. Consumers only call :meth:`is_held`
+    (cheap state read) and :meth:`mark_grasped`.
     """
 
     def __init__(
@@ -209,75 +260,141 @@ class GraspVerifier:
         self._gripper = gripper
         self._signals = list(signals)
         self._params = params if params is not None else VerifierParams()
+        self._state: GraspState = GraspState.IDLE
         self._object_name: str | None = None
         self._baselines: dict[str, float | None] = {}
+        self._ticks_since_grasp: int = 0
 
     # -- Public API ----------------------------------------------------------
 
     @property
-    def held_object(self) -> str | None:
-        """The object we believe is currently held, or None.
+    def state(self) -> GraspState:
+        """Current state of the grasp verifier.
 
-        This is *not* raw bookkeeping — it only returns the grasped
-        name when :attr:`is_held` agrees. A stale baseline + dropped
-        object yields ``None``. Consumers that want \"what did the
-        grasp sequence think it grabbed\" without the health check
-        should read :attr:`tracked_object` instead.
+        Useful for diagnostics (\"we were HOLDING, now we're LOST,
+        something slipped\") and for tests that want to assert on
+        exact state rather than the bool shorthand.
         """
-        if self._object_name is None:
-            return None
-        return self._object_name if self.is_held else None
+        return self._state
+
+    @property
+    def is_held(self) -> bool:
+        """True iff the state machine is in HOLDING.
+
+        Plain state read — does not re-invoke :func:`verify_grasp`.
+        Consistent across multiple reads in the same cycle. The work
+        of deciding whether we still hold the object happens in
+        :meth:`tick`, which the execution context calls once per
+        control cycle.
+        """
+        return self._state is GraspState.HOLDING
+
+    @property
+    def held_object(self) -> str | None:
+        """The object we're currently holding, or None.
+
+        Returns the tracked name when :attr:`is_held` is True,
+        otherwise None. A stale baseline + dropped object yields
+        ``None``. Consumers that want *\"what did the grasp sequence
+        try to grab?\"* regardless of current health should read
+        :attr:`tracked_object` instead.
+        """
+        return self._object_name if self._state is GraspState.HOLDING else None
 
     @property
     def tracked_object(self) -> str | None:
         """The object name recorded at :meth:`mark_grasped` time, or None.
 
-        This is the raw bookkeeping — it does *not* re-check live
-        signals. Useful for diagnostics (\"we thought we grabbed X,
-        but the verifier says we dropped it\") and for
-        :class:`~mj_manipulator.bt.nodes` that need to know what the
-        grasp sequence was *attempting* even if it failed.
+        This is the raw bookkeeping — it does *not* check the state
+        machine. Useful for diagnostics (\"we thought we grabbed X,
+        but the verifier says we dropped it\") and for recovery
+        subtrees that need to know what the grasp sequence was
+        *attempting* even if it failed. Goes to None on
+        :meth:`mark_released` and stays at the last-grasp name
+        while the state is LOST.
         """
         return self._object_name
 
-    @property
-    def is_held(self) -> bool:
-        """Live check: are the signals consistent with still holding the object?
-
-        Re-reads every signal each call. Returns False if no object
-        is currently tracked (nothing to check) or if the decision
-        function says the held object has dropped.
-        """
-        return verify_grasp(self._collect_facts(), self._params)
-
     def mark_grasped(self, object_name: str) -> None:
-        """Begin tracking a grasp and capture a baseline from every signal.
+        """Begin tracking a grasp, capture baseline, enter HOLDING.
 
         Called by the grasp sequence (:meth:`SimArmController.grasp`
         or its hardware equivalent) right after the close motion
-        succeeds. Records the current value of every signal so future
-        :attr:`is_held` calls can detect drops.
+        finishes. Records the current value of every signal so
+        subsequent ticks can detect drops, and starts the settling
+        window — drop-detection is suppressed for the first
+        ``settling_ticks`` ticks to let physics settle.
+
+        Transitions the state machine to HOLDING unconditionally,
+        even if the previous state was LOST. A fresh grasp overrides
+        any previous state.
         """
         self._object_name = object_name
         self._baselines = {s.name: s.read() for s in self._signals}
+        self._state = GraspState.HOLDING
+        self._ticks_since_grasp = 0
+
+        if self._baselines:
+            baseline_str = ", ".join(
+                f"{name}={'unavailable' if value is None else f'{value:.3f}'}"
+                for name, value in self._baselines.items()
+            )
+            logger.info(
+                "GraspVerifier: HOLDING %s (baseline: %s, settling for %d ticks)",
+                object_name,
+                baseline_str,
+                self._params.settling_ticks,
+            )
+        else:
+            logger.info(
+                "GraspVerifier: HOLDING %s (no load signals configured)",
+                object_name,
+            )
 
     def mark_released(self) -> None:
-        """Stop tracking. :attr:`is_held` returns False until the next
-        :meth:`mark_grasped`.
+        """Force state to IDLE and clear baseline.
+
+        Called by `SimArmController.release()` (and the hardware
+        equivalent) when the caller explicitly commands a release.
+        Intent is authoritative: the state flips immediately, with no
+        wait for :meth:`tick` to observe the load drop.
+
+        The tick-driven observation path (HOLDING → LOST on load
+        collapse) is reserved for *unintended* drops — an object
+        slipping mid-transport, a grasp that looked successful but
+        wasn't holding, etc. Both paths end in ``is_held → False``.
         """
+        if self._state is not GraspState.IDLE:
+            logger.info("GraspVerifier: released %s manually (→ IDLE)", self._object_name)
+        self._state = GraspState.IDLE
         self._object_name = None
         self._baselines = {}
+        self._ticks_since_grasp = 0
 
     def tick(self) -> None:
-        """Per-control-cycle hook.
+        """Advance the state machine by one control cycle.
 
-        No-op in v1 — signals are read instantaneously on every
-        :attr:`is_held` call. Reserved for future debouncing /
-        rolling-average logic; keeping the hook point means execute
-        loops can wire it up now without needing a protocol change
-        later.
+        No-op when IDLE or LOST. When HOLDING:
+
+        - Increments the settling counter.
+        - If still inside the settling window, does nothing else.
+        - Otherwise re-reads every signal, runs :func:`verify_grasp`,
+          and transitions to LOST if the verdict is False.
+
+        Called by the execution context once per control cycle. Not
+        meant to be called by user code — consumers read
+        :attr:`is_held` between ticks.
         """
-        return None
+        if self._state is not GraspState.HOLDING:
+            return
+
+        self._ticks_since_grasp += 1
+        if self._ticks_since_grasp <= self._params.settling_ticks:
+            return
+
+        facts = self._collect_facts()
+        if not verify_grasp(facts, self._params):
+            self._transition_to_lost(facts)
 
     # -- Internals -----------------------------------------------------------
 
@@ -294,3 +411,23 @@ class GraspVerifier:
             signal_values={s.name: s.read() for s in self._signals},
             signal_baselines=dict(self._baselines),
         )
+
+    def _transition_to_lost(self, facts: VerifierFacts) -> None:
+        """Move HOLDING → LOST and log what tripped it."""
+        reasons = []
+        if (
+            facts.empty_at_fully_closed
+            and facts.gripper_position is not None
+            and facts.gripper_position >= self._params.empty_position_threshold
+        ):
+            reasons.append(f"gripper at mechanical stop (pos={facts.gripper_position:.3f})")
+        for name, val in facts.signal_values.items():
+            base = facts.signal_baselines.get(name)
+            if val is None or base is None or abs(base) < 1e-6:
+                continue
+            threshold = abs(base) * (1.0 - self._params.load_drop_ratio)
+            if abs(val) < threshold:
+                reasons.append(f"{name} dropped from {base:.3f} → {val:.3f} (threshold {threshold:.3f})")
+        reason_str = "; ".join(reasons) if reasons else "unknown"
+        logger.warning("GraspVerifier: LOST %s (reason: %s)", self._object_name, reason_str)
+        self._state = GraspState.LOST

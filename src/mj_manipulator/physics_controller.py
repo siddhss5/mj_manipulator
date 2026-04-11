@@ -24,7 +24,6 @@ import mujoco
 import numpy as np
 
 from mj_manipulator.config import GripperPhysicsConfig, PhysicsExecutionConfig
-from mj_manipulator.grasp_manager import detect_grasped_object
 
 if TYPE_CHECKING:
     from mj_manipulator.arm import Arm
@@ -601,32 +600,41 @@ class PhysicsController:
         arm_name: str,
         candidate_objects: list[str] | None = None,
         steps: int | None = None,
-    ) -> str | None:
-        """Close gripper with contact detection.
+    ) -> bool:
+        """Close the gripper through its control ramp.
 
-        Gradually closes the gripper while monitoring for object contact.
-        After contact is detected, continues closing for a firm grip, then
-        performs final bilateral contact verification.
+        Runs the full open-then-close sequence: a few steps of opening
+        for a clean start, then the gradual close ramp, then a firm-grip
+        hold phase. Always runs the complete duration — no early exit on
+        contact detection. The caller decides whether the grasp succeeded
+        by inspecting :attr:`Gripper.grasp_verifier.is_held` after the
+        settling window elapses (:meth:`SimArmController.grasp` does
+        this automatically).
 
         Args:
             arm_name: Which arm's gripper to close.
-            candidate_objects: Objects to consider for grasp detection.
-                If None, considers all objects in contact.
+            candidate_objects: Unused (kept for signature compatibility;
+                candidate-object resolution is now a pure-signal
+                responsibility of :class:`GraspVerifier`).
             steps: Number of close steps (default from gripper_config).
 
         Returns:
-            Name of grasped object, or None if nothing grasped.
+            True if the close sequence ran to completion, False if the
+            arm has no configured gripper. The return value does **not**
+            reflect whether anything was grasped — that's the verifier's
+            job.
         """
+        del candidate_objects  # retained for signature compat only
+
         cfg = self.gripper_config
         if steps is None:
             steps = cfg.close_steps
 
         if arm_name not in self._grippers:
             logger.warning("No gripper found for %s", arm_name)
-            return None
+            return False
 
         gstate = self._grippers[arm_name]
-        gripper = gstate.gripper
 
         start_ctrl = gstate.ctrl_open
         end_ctrl = gstate.ctrl_closed
@@ -636,95 +644,25 @@ class PhysicsController:
         for _ in range(cfg.pre_open_steps):
             self.step()
 
-        contacts_detected = False
-        grasped = None
         sleep_dt = self.control_dt * 0.5 if self.viewer is not None else 0.0
 
-        # Gradually close
+        # Gradual close ramp — runs unconditionally
         for i in range(steps):
             t = (i + 1) / steps
             gstate.target_ctrl = start_ctrl + t * (end_ctrl - start_ctrl)
             self.step()
-
-            # Check contacts periodically (unilateral during closing)
-            if i % cfg.contact_check_interval == 0 and not contacts_detected:
-                grasped = detect_grasped_object(
-                    self.model,
-                    self.data,
-                    gripper.gripper_body_names,
-                    candidate_objects,
-                    require_bilateral=False,
-                    debug=cfg.debug,
-                )
-                if grasped:
-                    contacts_detected = True
-
             if sleep_dt > 0:
                 time.sleep(sleep_dt)
 
-        # Firm grip if contact was detected during closing
-        if contacts_detected:
-            for _ in range(cfg.firm_grip_steps):
-                self.step()
-                if sleep_dt > 0:
-                    time.sleep(sleep_dt)
+        # Firm grip phase — let the gripper settle at the target for
+        # a few steps so the grasp has a chance to stabilize before
+        # the verifier's settling window begins.
+        for _ in range(cfg.firm_grip_steps):
+            self.step()
+            if sleep_dt > 0:
+                time.sleep(sleep_dt)
 
-        # Final bilateral detection (robust)
-        grasped = detect_grasped_object(
-            self.model,
-            self.data,
-            gripper.gripper_body_names,
-            candidate_objects,
-            require_bilateral=True,
-            debug=cfg.debug,
-        )
-
-        if not grasped:
-            # Fallback to unilateral
-            grasped = detect_grasped_object(
-                self.model,
-                self.data,
-                gripper.gripper_body_names,
-                candidate_objects,
-                require_bilateral=False,
-                debug=cfg.debug,
-            )
-            if grasped:
-                logger.warning(
-                    "Gripper %s: only unilateral contact with %s — grasp may be unstable",
-                    arm_name,
-                    grasped,
-                )
-
-        # Check fully-closed state: for grippers whose fingers physically
-        # touch at fully-closed (e.g. Franka), this means nothing is held.
-        # For grippers with finger travel (e.g. Robotiq 2F-140), fully-closed
-        # is still a valid grasp position.
-        gripper_pos = gripper.get_actual_position()
-        if gripper_pos > cfg.fully_closed_threshold:
-            if getattr(gripper, "empty_at_fully_closed", False):
-                if grasped:
-                    logger.info(
-                        "Gripper %s: fully closed (pos=%.3f) — grasp rejected (%s)",
-                        arm_name,
-                        gripper_pos,
-                        grasped,
-                    )
-                else:
-                    logger.info(
-                        "Gripper %s: fully closed (pos=%.3f) — no object grasped",
-                        arm_name,
-                        gripper_pos,
-                    )
-                return None
-            elif not grasped:
-                logger.warning(
-                    "Gripper %s: fully closed (pos=%.3f) with no contacts",
-                    arm_name,
-                    gripper_pos,
-                )
-
-        return grasped
+        return True
 
     def open_gripper(self, arm_name: str, steps: int | None = None) -> None:
         """Open gripper while maintaining all arm positions.
@@ -817,12 +755,24 @@ class PhysicsController:
     # -- Internal -----------------------------------------------------------
 
     def _step_physics(self) -> None:
-        """Apply gripper ctrl, step MuJoCo, sync viewer."""
+        """Apply gripper ctrl, step MuJoCo, tick grasp verifiers, sync viewer."""
         for gstate in self._grippers.values():
             self.data.ctrl[gstate.actuator_id] = gstate.target_ctrl
 
         for _ in range(self.steps_per_control):
             mujoco.mj_step(self.model, self.data)
+
+        # Tick every configured GraspVerifier exactly once per control
+        # cycle. This is the single \"advance time by one control cycle\"
+        # primitive in physics mode, so every execution path
+        # (ctx.step, ctx.execute, gripper close sequences, trajectory
+        # runners) transitively runs verifier ticks through here. No
+        # consumer needs to remember to tick. Arms without a verifier
+        # are no-ops.
+        for astate in self._arms.values():
+            gripper = astate.arm.gripper
+            if gripper is not None and gripper.grasp_verifier is not None:
+                gripper.grasp_verifier.tick()
 
         if self.viewer is not None:
             now = time.time()
