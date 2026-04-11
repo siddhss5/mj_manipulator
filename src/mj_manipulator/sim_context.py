@@ -90,6 +90,16 @@ class SimArmController:
         gripper.set_candidate_objects(candidates)
         arm_name = self._arm.config.name
 
+        # Tare the wrist F/T right before closing: the reading at this
+        # moment reflects gripper weight + any existing load. Once the
+        # object is held, subsequent get_ft_wrench() readings reflect
+        # the object's weight alone, which is what GraspVerifier's
+        # WristFTSignal compares against its post-grasp baseline. Skip
+        # when the arm has no F/T sensor or F/T isn't meaningful
+        # (kinematic mode).
+        if self._arm.has_ft_sensor and self._arm.ft_valid:
+            self._arm.tare_ft()
+
         if self._context._controller is not None:
             # Physics: realistic gripper close with contact detection
             grasped = self._context._controller.close_gripper(
