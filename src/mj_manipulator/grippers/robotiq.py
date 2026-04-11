@@ -198,8 +198,19 @@ class RobotiqGripper(_BaseGripper):
     """
 
     hand_type: str = "robotiq"
-    # Robotiq 2F-140 has 14cm finger travel — fully-closed can still hold
-    empty_at_fully_closed: bool = False
+    # The Robotiq 2F-140 has 14 cm of finger travel, so fully-closed
+    # can in principle still hold an extremely thin object — but in
+    # practice the objects we grasp are much wider than the
+    # ``empty_position_threshold`` resolution (default 2% = 2.8 mm on
+    # the 140 mm travel). Treating fully-closed as \"empty\" lets the
+    # :class:`~mj_manipulator.grasp_verifier.GraspVerifier`'s
+    # decisive-negative branch fire immediately when the gripper
+    # closed on nothing, which is a crisp, noise-free, motion-
+    # independent signal — better than trying to derive the same
+    # verdict from F/T readings that bounce around during transport.
+    # See personalrobotics/geodude#173 and personalrobotics/mj_manipulator#98
+    # for the full story.
+    empty_at_fully_closed: bool = True
 
     def __init__(
         self,
