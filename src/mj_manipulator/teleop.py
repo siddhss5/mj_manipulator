@@ -399,9 +399,16 @@ class TeleopController:
         if max_component > max_step:
             q_target = q_current + delta * (max_step / max_component)
 
-        # Compute velocity feedforward
+        # Compute velocity feedforward, clamped to the arm's kinematic
+        # velocity limits. Without clamping, max_joint_step / twist_dt
+        # can exceed the velocity limits by 2-4x (e.g. 0.05/0.008 =
+        # 6.25 rad/s vs UR5e shoulder limit of 1.57 rad/s), causing the
+        # PD controller to overshoot and the arm to jitter during teleop.
         dt = self._config.twist_dt
         qd = (q_target - q_current) / max(dt, 1e-6)
+        limits = getattr(self._arm.config, "kinematic_limits", None)
+        if limits is not None:
+            qd = np.clip(qd, -limits.velocity, limits.velocity)
 
         arm_name = self._arm.config.name
         self._ctx.step_cartesian(arm_name, q_target, qd)
