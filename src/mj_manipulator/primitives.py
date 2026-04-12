@@ -140,6 +140,25 @@ def _deactivate_teleop_for_arms(robot, arms: list[str] | None = None) -> None:
             ctx._deactivate_teleop_for(arm_name)
 
 
+def _recover(robot, ctx, sides: list[str]) -> None:
+    """Uniform failure recovery: send arm(s) home.
+
+    Single recovery point for all primitive failure paths. Replaces
+    scattered ``go_home`` calls and the BT-level ``recover`` subtree
+    (which was deleted in this refactor). ``go_home`` already handles:
+    retract-up-then-retry if start config is in collision, release
+    gripper once the arm reaches home.
+
+    Args:
+        robot: ManipulationRobot instance.
+        ctx: Active execution context.
+        sides: Arm names to recover (e.g. ``["left"]``, ``["right"]``).
+    """
+    for side in sides:
+        if not _arm_preempted(robot, side):
+            go_home(robot, arm=side)
+
+
 def _pickup_details(ns: str) -> tuple[list[str], str | None, bool, bool, str | None]:
     """Read pickup results from blackboard after a failed attempt.
 
@@ -344,6 +363,14 @@ def pickup(
 def _pickup_inner(robot, ctx, target, *, arm, verbose) -> bool:
     from mj_manipulator.bt.subtrees import full_pickup
 
+    # Ensure grippers are open before planning. A closed gripper from
+    # a previous failed grasp causes start-config collisions when the
+    # planner tries to approach a new object.
+    for side_name, arm_obj in robot.arms.items():
+        gripper = arm_obj.gripper
+        if gripper is not None and gripper.get_actual_position() > 0.1:
+            ctx.arm(side_name).release()
+
     # Quick check: are there any matching objects?
     if not robot.find_objects(target):
         desc = f"'{target}'" if target else "any object"
@@ -389,6 +416,7 @@ def _pickup_inner(robot, ctx, target, *, arm, verbose) -> bool:
             go_home(robot, arm=side)
 
     _report_pickup_failure(robot, sides_tried, target)
+    _recover(robot, ctx, sides_tried)
     _sync_viewer(robot)
     return False
 
@@ -468,6 +496,7 @@ def _place_inner(robot, ctx, destination, *, arm, verbose) -> bool:
     else:
         _set_hud_action(robot, arm, f"✗ place({desc})")
         logger.warning("Place failed for destination '%s'", destination)
+        _recover(robot, ctx, [arm])
 
     _sync_viewer(robot)
     return ok
@@ -527,6 +556,12 @@ def _go_home_inner(robot, ctx, *, arm, verbose) -> bool:
             return robot.is_abort_requested() or _arm_preempted(robot, s)
 
         goal = np.array(ready_poses[side])
+
+        # Release before planning home. Opens a closed gripper so the
+        # planner doesn't see start-config collisions from closed
+        # fingers, and puts the verifier in IDLE so the abort-on-drop
+        # predicate doesn't fire during go_home's trajectory.
+        ctx.arm(side).release()
 
         try:
             path = arm_obj.plan_to_configuration(goal, abort_fn=abort_fn)
