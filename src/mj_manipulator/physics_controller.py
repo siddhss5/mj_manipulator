@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Callable
 import mujoco
 import numpy as np
 
-from mj_manipulator.config import GripperPhysicsConfig, PhysicsExecutionConfig
+from mj_manipulator.config import GripperPhysicsConfig, PhysicsExecutionConfig, SafetyResponse
 
 if TYPE_CHECKING:
     from mj_manipulator.arm import Arm
@@ -49,6 +49,12 @@ class _ArmState:
     target_position: np.ndarray
     target_velocity: np.ndarray
     lookahead: float | None = None  # None = use controller default
+    # Safety layer state
+    prev_target_velocity: np.ndarray | None = None
+    faulted: bool = False
+    first_step: bool = True  # skip accel check on the very first cycle
+    velocity_limits: np.ndarray | None = None
+    acceleration_limits: np.ndarray | None = None
 
 
 @dataclass
@@ -284,6 +290,13 @@ class PhysicsController:
             else:
                 target_pos = arm.get_joint_positions().copy()
 
+            # Cache kinematic limits for the safety layer. Arms without
+            # kinematic_limits (e.g. test mocks) get None → safety check
+            # is skipped for that arm.
+            limits = getattr(arm.config, "kinematic_limits", None)
+            vel_lim = limits.velocity.copy() if limits is not None else None
+            acc_lim = limits.acceleration.copy() if limits is not None else None
+
             self._arms[name] = _ArmState(
                 arm=arm,
                 actuator_ids=np.array(arm.actuator_ids, dtype=np.intp),
@@ -291,6 +304,9 @@ class PhysicsController:
                 joint_qvel_indices=np.array(arm.joint_qvel_indices, dtype=np.intp),
                 target_position=target_pos,
                 target_velocity=np.zeros(arm.dof),
+                prev_target_velocity=np.zeros(arm.dof),
+                velocity_limits=vel_lim,
+                acceleration_limits=acc_lim,
             )
 
             gripper = arm.gripper
@@ -371,6 +387,105 @@ class PhysicsController:
             np.asarray(velocity).copy() if velocity is not None else np.zeros(len(state.actuator_ids))
         )
 
+    # -- Safety layer --------------------------------------------------------
+
+    def _enforce_limits(
+        self,
+        name: str,
+        state: _ArmState,
+        q_cmd: np.ndarray,
+        lookahead: float,
+    ) -> np.ndarray:
+        """Check velocity and acceleration limits, apply the configured response.
+
+        Called once per arm per control cycle, after computing ``q_cmd``
+        and before writing to ``data.ctrl``. Returns (possibly clamped)
+        ``q_cmd``.
+        """
+        if state.velocity_limits is None:
+            return q_cmd
+        if state.faulted:
+            return self.data.qpos[state.joint_qpos_indices].copy()
+
+        response = self.config.safety_response
+        vel = state.target_velocity
+        prev_vel = state.prev_target_velocity
+        vel_limits = state.velocity_limits
+        acc_limits = state.acceleration_limits
+
+        # --- Velocity check ---
+        vel_violation = np.abs(vel) > vel_limits
+        any_vel_violation = np.any(vel_violation)
+
+        # --- Acceleration check ---
+        # Skip on the very first cycle after construction or fault-clear
+        # (prev_velocity is zeros from init, so any nonzero first command
+        # looks like infinite acceleration).
+        any_acc_violation = False
+        accel = np.zeros_like(vel)
+        if acc_limits is not None and prev_vel is not None and not state.first_step:
+            accel = (vel - prev_vel) / self.control_dt
+            acc_violation = np.abs(accel) > acc_limits
+            any_acc_violation = np.any(acc_violation)
+
+        if not any_vel_violation and not any_acc_violation:
+            return q_cmd
+
+        # --- Log the violation ---
+        if any_vel_violation:
+            for j in np.where(vel_violation)[0]:
+                logger.warning(
+                    "Safety: %s joint %d velocity %.2f rad/s exceeds limit %.2f",
+                    name,
+                    j,
+                    vel[j],
+                    vel_limits[j],
+                )
+        if any_acc_violation:
+            for j in np.where(acc_violation)[0]:
+                logger.warning(
+                    "Safety: %s joint %d acceleration %.1f rad/s² exceeds limit %.1f",
+                    name,
+                    j,
+                    accel[j],
+                    acc_limits[j],
+                )
+
+        # --- Apply response ---
+        if response == SafetyResponse.WARN:
+            return q_cmd
+
+        if response == SafetyResponse.FAULT:
+            state.faulted = True
+            state.target_velocity = np.zeros_like(vel)
+            state.target_position = self.data.qpos[state.joint_qpos_indices].copy()
+            logger.error("Safety FAULT: %s halted due to limit violation", name)
+            return state.target_position.copy()
+
+        # CLAMP: limit velocity, then limit acceleration
+        clamped_vel = np.clip(vel, -vel_limits, vel_limits)
+        if acc_limits is not None and prev_vel is not None and not state.first_step:
+            max_delta = acc_limits * self.control_dt
+            delta = clamped_vel - prev_vel
+            clamped_vel = prev_vel + np.clip(delta, -max_delta, max_delta)
+        state.target_velocity = clamped_vel
+        return state.target_position + lookahead * clamped_vel
+
+    def clear_fault(self, arm_name: str) -> None:
+        """Clear fault state for an arm, allowing motion to resume.
+
+        Resets the arm to hold its current position with zero velocity.
+        """
+        if arm_name not in self._arms:
+            raise ValueError(f"Unknown arm: {arm_name}")
+        state = self._arms[arm_name]
+        state.faulted = False
+        state.first_step = True  # skip accel check on the next cycle
+        state.target_position = self.data.qpos[state.joint_qpos_indices].copy()
+        state.target_velocity = np.zeros(len(state.actuator_ids))
+        state.prev_target_velocity = np.zeros(len(state.actuator_ids))
+        logger.info("Safety: %s fault cleared", arm_name)
+
     # -- Physics stepping ---------------------------------------------------
 
     def step(self) -> None:
@@ -380,12 +495,15 @@ class PhysicsController:
         streaming control, use :meth:`step_reactive` instead.
         """
         # Arm actuators: position + velocity feedforward (per-arm lookahead)
-        for state in self._arms.values():
+        for name, state in self._arms.items():
             la = state.lookahead if state.lookahead is not None else self.lookahead_time
             q_cmd = state.target_position + la * state.target_velocity
+            q_cmd = self._enforce_limits(name, state, q_cmd, la)
             self.data.ctrl[state.actuator_ids] = q_cmd
+            state.prev_target_velocity = state.target_velocity.copy()
+            state.first_step = False
 
-        # Entity actuators (bases, etc.): same feedforward
+        # Entity actuators (bases, etc.): same feedforward (no safety layer)
         for state in self._entities.values():
             q_cmd = state.target_position + self.lookahead_time * state.target_velocity
             self.data.ctrl[state.actuator_ids] = q_cmd
@@ -421,7 +539,10 @@ class PhysicsController:
         # Reactive arm: small lookahead
         reactive_lookahead = 2.0 * self.control_dt
         q_cmd = state.target_position + reactive_lookahead * state.target_velocity
+        q_cmd = self._enforce_limits(arm_name, state, q_cmd, reactive_lookahead)
         self.data.ctrl[state.actuator_ids] = q_cmd
+        state.prev_target_velocity = state.target_velocity.copy()
+        state.first_step = False
 
         # Other arms: hold position (no velocity feedforward)
         for other_name, other_state in self._arms.items():

@@ -10,8 +10,27 @@ belong in the robot-specific package, not here.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 
 import numpy as np
+
+
+class SafetyResponse(Enum):
+    """How the controller responds to velocity/acceleration limit violations.
+
+    Applied per control cycle inside :meth:`PhysicsController.step`.
+    """
+
+    WARN = "warn"
+    """Log the violation but don't modify the command. Use for debugging."""
+
+    CLAMP = "clamp"
+    """Clamp the command to within limits and log. Default for sim."""
+
+    FAULT = "fault"
+    """Halt the arm (hold current position), set a fault flag, log at
+    ERROR. Matches UR5e protective stop / Franka reflex behavior.
+    Call :meth:`PhysicsController.clear_fault` to resume."""
 
 
 @dataclass
@@ -92,6 +111,7 @@ class PhysicsExecutionConfig:
     velocity_tolerance: float = 0.1  # rad/s
     convergence_timeout_steps: int = 500
     base_settling_steps: int = 50
+    safety_response: SafetyResponse = SafetyResponse.CLAMP
 
     @classmethod
     def tight(cls) -> "PhysicsExecutionConfig":
