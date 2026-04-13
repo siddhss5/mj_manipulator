@@ -1,0 +1,17 @@
+digraph pastafarianism {
+ordering=out;
+graph [fontname="times-roman"];
+node [fontname="times-roman"];
+edge [fontname="times-roman"];
+"Place object" [label="Ⓜ Place object", shape=box, style=filled, fillcolor=orange, fontsize=9, fontcolor=black];
+"Find placement poses" [label="Find placement poses", shape=ellipse, style=filled, fillcolor=gray, fontsize=9, fontcolor=black];
+"Place object" -> "Find placement poses";
+"Plan arm path" [label="Plan arm path", shape=ellipse, style=filled, fillcolor=gray, fontsize=9, fontcolor=black];
+"Place object" -> "Plan arm path";
+"Smooth trajectory" [label="Smooth trajectory", shape=ellipse, style=filled, fillcolor=gray, fontsize=9, fontcolor=black];
+"Place object" -> "Smooth trajectory";
+"Move arm" [label="Move arm", shape=ellipse, style=filled, fillcolor=gray, fontsize=9, fontcolor=black];
+"Place object" -> "Move arm";
+"Open gripper" [label="Open gripper", shape=ellipse, style=filled, fillcolor=gray, fontsize=9, fontcolor=black];
+"Place object" -> "Open gripper";
+}

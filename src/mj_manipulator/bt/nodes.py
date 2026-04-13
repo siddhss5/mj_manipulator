@@ -1,26 +1,49 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Siddhartha Srinivasa
 
-"""Behavior tree leaf nodes wrapping mj_manipulator operations.
+"""Behavior tree leaf nodes for manipulation.
 
-Each node reads inputs from the blackboard, calls one mj_manipulator
-operation, and writes results back. All nodes take a ``ns`` (namespace)
-parameter so multiple arms can share a tree.
+Each node reads inputs from the py_trees blackboard, calls one
+mj_manipulator operation, and writes results back. All nodes take a
+``ns`` (namespace) parameter so multiple arms can share a tree.
 
-Blackboard layout::
+These are **Layer 1 building blocks** — pure, composable, no opinions
+about recovery or task sequencing. See ``docs/behavior-trees.md`` for
+the composition guide and blackboard schema.
 
-    /context          — SimContext (shared)
-    {ns}/arm          — Arm instance
-    {ns}/arm_name     — arm name string (for ctx.arm(name))
-    {ns}/tsrs         — list of TSR goals
-    {ns}/goal_config  — numpy array goal configuration
-    {ns}/timeout      — planning timeout (float, seconds)
-    {ns}/path         — planned path (list of numpy arrays)
-    {ns}/trajectory   — retimed Trajectory
-    {ns}/object_name  — object to grasp/release
-    {ns}/grasped      — name of grasped object (after Grasp)
-    {ns}/twist        — 6D twist for CartesianMove
-    {ns}/distance     — max distance for CartesianMove
+Blackboard keys (complete reference)
+-------------------------------------
+
+Shared (no namespace):
+
+- ``/context`` — ExecutionContext (SimContext or HardwareContext)
+- ``/abort_fn`` — optional abort predicate, checked by planners
+
+Per-arm (namespaced with ``{ns}/``):
+
+=====================  ==================  =================  =================
+Key                    Type                Written by         Read by
+=====================  ==================  =================  =================
+arm                    Arm                 setup              most nodes
+arm_name               str                 setup              Grasp, Release
+timeout                float               setup              PlanTo* nodes
+object_name            str | None          setup / Grasp      Grasp, Generate*
+destination            str | None          setup              GeneratePlaceTSRs
+grasp_source           GraspSource         setup              Generate* nodes
+hand_type              str                 setup              GenerateGrasps
+goal_config            ndarray             setup              PlanToConfig
+grasp_tsrs             list[TSR]           GenerateGrasps     PlanToTSRs
+place_tsrs             list[TSR]           GeneratePlaceTSRs  PlanToTSRs
+tsr_to_object          list[str]           GenerateGrasps     Grasp
+tsr_to_destination     list[str]           GeneratePlaceTSRs  (diagnostics)
+goal_tsr_index         int                 PlanToTSRs         Grasp
+plan_failure_reason    str | None          PlanToTSRs         (diagnostics)
+path                   list[ndarray]       PlanTo* nodes      Retime
+trajectory             Trajectory          Retime             Execute
+grasped                str | None          Grasp              (diagnostics)
+twist                  ndarray (6,)        setup / subtree    SafeRetract
+distance               float               setup / subtree    SafeRetract
+=====================  ==================  =================  =================
 """
 
 from __future__ import annotations
@@ -31,7 +54,12 @@ from py_trees.common import Access, Status
 
 
 class _ManipulationNode(py_trees.behaviour.Behaviour):
-    """Base class for manipulation leaf nodes with namespace support."""
+    """Base class for manipulation leaf nodes.
+
+    Provides namespace support so multiple arms can share a tree.
+    Each node attaches a blackboard client scoped to its ``ns``
+    prefix. Use :meth:`_key` to build namespaced keys.
+    """
 
     def __init__(self, name: str, ns: str = ""):
         super().__init__(name)
@@ -43,11 +71,19 @@ class _ManipulationNode(py_trees.behaviour.Behaviour):
         return f"{self.ns}/{name}" if self.ns else name
 
 
+# ---------------------------------------------------------------------------
+# Planning nodes
+# ---------------------------------------------------------------------------
+
+
 class PlanToTSRs(_ManipulationNode):
     """Plan a collision-free path to a set of TSR goals.
 
-    Reads: ``{ns}/arm``, ``{ns}/{tsrs_key}``, ``{ns}/timeout``
-    Writes: ``{ns}/path``, ``{ns}/goal_tsr_index``
+    Reads: ``{ns}/arm``, ``{ns}/{tsrs_key}``, ``{ns}/timeout``, ``/abort_fn``
+    Writes: ``{ns}/path``, ``{ns}/goal_tsr_index``, ``{ns}/plan_failure_reason``
+
+    Returns SUCCESS when: a collision-free path is found to at least one TSR.
+    Returns FAILURE when: no feasible path exists, or planning was aborted.
     """
 
     def __init__(self, ns: str = "", tsrs_key: str = "tsrs", name: str = "PlanToTSRs"):
@@ -93,8 +129,14 @@ class PlanToTSRs(_ManipulationNode):
 class PlanToConfig(_ManipulationNode):
     """Plan a collision-free path to a joint configuration.
 
-    Reads: ``{ns}/arm``, ``{ns}/goal_config``, ``{ns}/timeout``
+    Not used by the default subtrees — available as a building block
+    for custom recovery or go-home sequences.
+
+    Reads: ``{ns}/arm``, ``{ns}/goal_config``, ``{ns}/timeout``, ``/abort_fn``
     Writes: ``{ns}/path``
+
+    Returns SUCCESS when: a collision-free path is found.
+    Returns FAILURE when: planning fails or is aborted.
     """
 
     def __init__(self, ns: str = "", name: str = "PlanToConfig"):
@@ -131,11 +173,18 @@ class PlanToConfig(_ManipulationNode):
         return Status.SUCCESS
 
 
+# ---------------------------------------------------------------------------
+# Trajectory execution
+# ---------------------------------------------------------------------------
+
+
 class Retime(_ManipulationNode):
     """Time-parameterize a path into a trajectory via TOPP-RA.
 
     Reads: ``{ns}/arm``, ``{ns}/path``
     Writes: ``{ns}/trajectory``
+
+    Returns SUCCESS always (TOPP-RA doesn't fail on valid paths).
     """
 
     def __init__(self, ns: str = "", name: str = "Retime"):
@@ -156,6 +205,10 @@ class Execute(_ManipulationNode):
     """Execute a trajectory via the execution context.
 
     Reads: ``/context``, ``{ns}/trajectory``
+
+    Returns SUCCESS when: trajectory completes without abort.
+    Returns FAILURE when: execution is aborted (by abort_fn, ownership
+        preemption, or GraspVerifier drop detection).
     """
 
     def __init__(self, ns: str = "", name: str = "Execute"):
@@ -172,15 +225,26 @@ class Execute(_ManipulationNode):
         return Status.SUCCESS if ok else Status.FAILURE
 
 
+# ---------------------------------------------------------------------------
+# Grasp / Release
+# ---------------------------------------------------------------------------
+
+
 class Grasp(_ManipulationNode):
     """Close gripper and grasp an object.
 
-    Reads: ``/context``, ``{ns}/arm_name``, ``{ns}/object_name``
-    Writes: ``{ns}/grasped``
+    If ``{ns}/tsr_to_object`` and ``{ns}/goal_tsr_index`` are set
+    (written by GenerateGrasps + PlanToTSRs), resolves the actual
+    object name from the planner's goal index. This enables "pick
+    any object" workflows where GenerateGrasps combines TSRs from
+    multiple objects.
 
-    If ``{ns}/tsr_to_object`` (list mapping TSR index → object name) and
-    ``{ns}/goal_tsr_index`` are set, resolves the actual object name from
-    the planner's goal index. This enables "pick any object" workflows.
+    Reads: ``/context``, ``{ns}/arm_name``, ``{ns}/object_name``,
+        ``{ns}/tsr_to_object``, ``{ns}/goal_tsr_index``
+    Writes: ``{ns}/object_name`` (resolved), ``{ns}/grasped``
+
+    Returns SUCCESS when: ``ctx.arm(name).grasp(obj)`` returns a name.
+    Returns FAILURE when: grasp returns None (no contact detected).
     """
 
     def __init__(self, ns: str = "", name: str = "Grasp"):
@@ -219,6 +283,8 @@ class Release(_ManipulationNode):
     """Open gripper and release held object(s).
 
     Reads: ``/context``, ``{ns}/arm_name``
+
+    Returns SUCCESS always.
     """
 
     def __init__(self, ns: str = "", name: str = "Release"):
@@ -233,22 +299,44 @@ class Release(_ManipulationNode):
         return Status.SUCCESS
 
 
+# ---------------------------------------------------------------------------
+# Cartesian motion
+# ---------------------------------------------------------------------------
+
+
 class SafeRetract(_ManipulationNode):
-    """Move along a twist until NEW collisions appear (post-grasp lift).
+    """Retract along a twist, aborting on new collisions.
 
-    Plans a Cartesian path along the twist direction and executes it via
-    the standard trajectory runner with a baseline-contact abort predicate.
-    Start-state collisions (e.g. held object touching source surface) are
-    tolerated; only *new* contacts stop the motion.
+    Plans a Cartesian path along the twist direction and executes it
+    with a baseline-contact abort predicate. Contacts present at the
+    start (e.g. held object touching the table) are tolerated; only
+    *new* contacts stop the motion. Used for post-grasp lifts on
+    fixed-base arms (Franka).
 
-    Reads: ``{ns}/arm``, ``{ns}/twist``, ``{ns}/distance``, ``/context``
+    Reads: ``{ns}/arm``, ``{ns}/twist``, ``{ns}/distance``,
+        ``/context``, ``/abort_fn``
+
+    Returns SUCCESS always (motion runs to completion or aborts
+        gracefully; the caller checks the arm's actual position to
+        determine how far it moved).
     """
 
-    def __init__(self, ns: str = "", name: str = "SafeRetract"):
+    def __init__(
+        self,
+        ns: str = "",
+        name: str = "SafeRetract",
+        *,
+        twist: np.ndarray | None = None,
+        distance: float | None = None,
+    ):
         super().__init__(name, ns)
+        self._twist = twist
+        self._distance = distance
         self.bb.register_key(key=self._key("arm"), access=Access.READ)
-        self.bb.register_key(key=self._key("twist"), access=Access.READ)
-        self.bb.register_key(key=self._key("distance"), access=Access.READ)
+        if twist is None:
+            self.bb.register_key(key=self._key("twist"), access=Access.READ)
+        if distance is None:
+            self.bb.register_key(key=self._key("distance"), access=Access.READ)
         self.bb.register_key(key="/context", access=Access.READ)
         try:
             self.bb.register_key(key="/abort_fn", access=Access.READ)
@@ -259,8 +347,8 @@ class SafeRetract(_ManipulationNode):
         from mj_manipulator.safe_retract import safe_retract
 
         arm = self.bb.get(self._key("arm"))
-        twist = self.bb.get(self._key("twist"))
-        distance = self.bb.get(self._key("distance"))
+        twist = self._twist if self._twist is not None else self.bb.get(self._key("twist"))
+        distance = self._distance if self._distance is not None else self.bb.get(self._key("distance"))
         ctx = self.bb.get("/context")
 
         try:
@@ -281,7 +369,15 @@ class SafeRetract(_ManipulationNode):
 class CartesianMove(_ManipulationNode):
     """Move end-effector along a twist using Cartesian velocity control.
 
-    Reads: ``{ns}/arm``, ``{ns}/twist``, ``{ns}/distance``, ``{ns}/step_fn``
+    Not used by the default subtrees — available as a building block
+    for custom motion primitives (e.g. guarded moves, compliant
+    insertion). Differs from SafeRetract: no collision baseline,
+    no path planning, pure reactive velocity control.
+
+    Reads: ``{ns}/arm``, ``{ns}/arm_name``, ``{ns}/twist``,
+        ``{ns}/distance``, ``/context``, ``/abort_fn``
+
+    Returns SUCCESS always (motion runs to completion or abort).
     """
 
     def __init__(self, ns: str = "", name: str = "CartesianMove"):
@@ -318,13 +414,22 @@ class CartesianMove(_ManipulationNode):
         return Status.SUCCESS
 
 
-class CheckNotNearConfig(_ManipulationNode):
-    """Succeed if arm is NOT near goal_config (i.e. needs recovery motion).
+# ---------------------------------------------------------------------------
+# Guards and utilities
+# ---------------------------------------------------------------------------
 
-    Returns FAILURE if arm is already near home — used as a guard to skip
-    unnecessary retract moves during recovery.
+
+class CheckNotNearConfig(_ManipulationNode):
+    """Succeed if arm is NOT near a goal configuration.
+
+    Not used by the default subtrees — available as a building block
+    for conditional execution in custom trees (e.g. "only retract if
+    arm has moved away from home").
 
     Reads: ``{ns}/arm``, ``{ns}/goal_config``
+
+    Returns SUCCESS when: max joint distance to goal > tolerance.
+    Returns FAILURE when: arm is already near goal (within tolerance).
     """
 
     def __init__(self, ns: str = "", name: str = "CheckNotNearConfig", tolerance: float = 0.1):
@@ -338,7 +443,7 @@ class CheckNotNearConfig(_ManipulationNode):
         goal = self.bb.get(self._key("goal_config"))
         q = arm.get_joint_positions()
         if np.max(np.abs(q - goal)) < self._tolerance:
-            return Status.FAILURE  # already near home, skip retract
+            return Status.FAILURE  # already near goal
         return Status.SUCCESS
 
 
@@ -346,6 +451,8 @@ class Sync(_ManipulationNode):
     """Synchronize execution context (mj_forward + viewer sync).
 
     Reads: ``/context``
+
+    Returns SUCCESS always.
     """
 
     def __init__(self, ns: str = "", name: str = "Sync"):
@@ -358,15 +465,27 @@ class Sync(_ManipulationNode):
         return Status.SUCCESS
 
 
-class GenerateGrasps(_ManipulationNode):
-    """Generate grasp TSRs using the robot's GraspSource.
+# ---------------------------------------------------------------------------
+# TSR generation
+# ---------------------------------------------------------------------------
 
-    Queries ``grasp_source.get_grasps()`` for the target object(s) and
-    combines all TSRs with a mapping so the Grasp node knows which
-    object was reached.
+
+class GenerateGrasps(_ManipulationNode):
+    """Generate grasp TSRs from the robot's GraspSource.
+
+    Queries ``grasp_source.get_grasps()`` for each target object and
+    combines all TSRs with a mapping (``tsr_to_object``) so the
+    Grasp node can resolve which object the planner actually reached.
+
+    When ``{ns}/object_name`` is None, generates TSRs for *all*
+    graspable objects in the scene (the "pick anything" workflow).
 
     Reads: ``{ns}/object_name``, ``{ns}/grasp_source``, ``{ns}/hand_type``
     Writes: ``{ns}/grasp_tsrs``, ``{ns}/tsr_to_object``
+
+    Returns SUCCESS when: at least one TSR was generated.
+    Returns FAILURE when: no graspable objects found, or no TSRs
+        generated for any object.
     """
 
     def __init__(self, ns: str = "", name: str = "GenerateGrasps"):
@@ -410,13 +529,18 @@ class GenerateGrasps(_ManipulationNode):
 
 
 class GeneratePlaceTSRs(_ManipulationNode):
-    """Generate placement TSRs using the robot's GraspSource.
+    """Generate placement TSRs from the robot's GraspSource.
 
-    Queries ``grasp_source.get_placements()`` for the target destination
-    and the currently held object.
+    Queries ``grasp_source.get_placements()`` for each destination.
+    Handles both instance names (``"recycle_bin_0"``) and type names
+    (``"recycle_bin"`` → all instances of that type).
 
     Reads: ``{ns}/destination``, ``{ns}/grasp_source``, ``{ns}/object_name``
     Writes: ``{ns}/place_tsrs``, ``{ns}/tsr_to_destination``
+
+    Returns SUCCESS when: at least one placement TSR was generated.
+    Returns FAILURE when: no valid destinations found, or no TSRs
+        generated for any destination.
     """
 
     def __init__(self, ns: str = "", name: str = "GeneratePlaceTSRs"):

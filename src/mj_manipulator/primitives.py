@@ -361,7 +361,7 @@ def pickup(
 
 
 def _pickup_inner(robot, ctx, target, *, arm, verbose) -> bool:
-    from mj_manipulator.bt.subtrees import full_pickup
+    from mj_manipulator.bt.subtrees import pickup as pickup_subtree
 
     # Ensure grippers are open before planning. A closed gripper from
     # a previous failed grasp causes start-config collisions when the
@@ -396,7 +396,7 @@ def _pickup_inner(robot, ctx, target, *, arm, verbose) -> bool:
 
         desc = target or "any"
         _set_hud_action(robot, side, f"⟳ pickup({desc})")
-        tree = full_pickup(ns)
+        tree = pickup_subtree(ns)
         if _tick_tree(tree, verbose=verbose):
             _set_hud_action(robot, side, f"✓ pickup({desc})")
             _sync_viewer(robot)
@@ -468,7 +468,7 @@ def place(
 
 
 def _place_inner(robot, ctx, destination, *, arm, verbose) -> bool:
-    from mj_manipulator.bt.subtrees import full_place
+    from mj_manipulator.bt.subtrees import place as place_subtree
 
     arm_obj = robot.arms[arm]
     ns = f"/{arm}"
@@ -486,7 +486,7 @@ def _place_inner(robot, ctx, destination, *, arm, verbose) -> bool:
 
     desc = destination or "auto"
     _set_hud_action(robot, arm, f"⟳ place({desc})")
-    tree = full_place(ns)
+    tree = place_subtree(ns)
     ok = _tick_tree(tree, verbose=verbose)
 
     if ok:

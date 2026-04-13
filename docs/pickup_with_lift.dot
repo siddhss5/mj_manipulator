@@ -1,0 +1,19 @@
+digraph pastafarianism {
+ordering=out;
+graph [fontname="times-roman"];
+node [fontname="times-roman"];
+edge [fontname="times-roman"];
+"Pick up object" [label="Ⓜ Pick up object", shape=box, style=filled, fillcolor=orange, fontsize=9, fontcolor=black];
+"Find grasps for object" [label="Find grasps for object", shape=ellipse, style=filled, fillcolor=gray, fontsize=9, fontcolor=black];
+"Pick up object" -> "Find grasps for object";
+"Plan arm path" [label="Plan arm path", shape=ellipse, style=filled, fillcolor=gray, fontsize=9, fontcolor=black];
+"Pick up object" -> "Plan arm path";
+"Smooth trajectory" [label="Smooth trajectory", shape=ellipse, style=filled, fillcolor=gray, fontsize=9, fontcolor=black];
+"Pick up object" -> "Smooth trajectory";
+"Move arm" [label="Move arm", shape=ellipse, style=filled, fillcolor=gray, fontsize=9, fontcolor=black];
+"Pick up object" -> "Move arm";
+"Close gripper" [label="Close gripper", shape=ellipse, style=filled, fillcolor=gray, fontsize=9, fontcolor=black];
+"Pick up object" -> "Close gripper";
+"Lift arm off table" [label="Lift arm off table", shape=ellipse, style=filled, fillcolor=gray, fontsize=9, fontcolor=black];
+"Pick up object" -> "Lift arm off table";
+}

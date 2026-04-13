@@ -1,23 +1,25 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025 Siddhartha Srinivasa
 
-"""Behavior tree nodes and subtree builders for manipulation.
+"""Behavior tree nodes and subtrees for manipulation.
 
-Provides py_trees leaf nodes wrapping mj_manipulator operations, plus
-convenience functions for common subtree patterns (pickup, place).
+Two layers:
 
-Subtrees are **action sequences** — they don't include recovery logic.
-Recovery is handled by the primitives layer (``robot.pickup()``,
-``robot.place()``). Users composing custom BTs handle failure however
-they like.
+- **Nodes** (Layer 1): Pure building blocks — ``PlanToTSRs``, ``Execute``,
+  ``Grasp``, ``Release``, etc. Each does one thing. Compose them into
+  custom trees for full control.
+- **Subtrees** (Layer 2): ``pickup(ns)`` and ``place(ns)``. Flat sequences
+  that do one complete task. No recovery — if any step fails, the
+  sequence returns FAILURE.
 
-All nodes use blackboard namespaces (``ns``) for multi-arm support::
+Usage::
 
-    from mj_manipulator.bt import pickup
+    from mj_manipulator.bt import pickup, place
 
     tree = pickup("/right")
+    tree = place("/left")
 
-Requires: ``pip install mj_manipulator[bt]`` (py_trees >= 2.2)
+See ``docs/behavior-trees.md`` for the full composition guide.
 """
 
 from mj_manipulator.bt.nodes import (
@@ -35,15 +37,12 @@ from mj_manipulator.bt.nodes import (
     Sync,
 )
 from mj_manipulator.bt.subtrees import (
-    full_pickup,
-    full_place,
     pickup,
     place,
-    plan_and_execute,
 )
 
 __all__ = [
-    # Leaf nodes
+    # Nodes (Layer 1 building blocks)
     "PlanToTSRs",
     "PlanToConfig",
     "Retime",
@@ -56,10 +55,7 @@ __all__ = [
     "Sync",
     "GenerateGrasps",
     "GeneratePlaceTSRs",
-    # Subtree builders
-    "plan_and_execute",
+    # Subtrees (Layer 2)
     "pickup",
     "place",
-    "full_pickup",
-    "full_place",
 ]
