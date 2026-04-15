@@ -59,6 +59,24 @@ def start_console(
 
     mode = "physics" if physics else "kinematic"
 
+    # -- E-Stop / Resume (shared by CLI and browser) ----------------------------
+    _estop_btn = None
+    _resume_btn = None
+
+    def estop():
+        """E-Stop: halt all execution. Call release_estop() to clear."""
+        robot.request_abort()
+        if _estop_btn is not None:
+            _estop_btn.visible = False
+            _resume_btn.visible = True
+
+    def release_estop():
+        """Release E-Stop and allow execution again."""
+        robot.clear_abort()
+        if _estop_btn is not None:
+            _estop_btn.visible = True
+            _resume_btn.visible = False
+
     # -- Build namespace -------------------------------------------------------
     user_ns: dict = {
         "robot": robot,
@@ -66,6 +84,8 @@ def start_console(
         "pickup": lambda target=None, **kw: pickup(robot, target, **kw),
         "place": lambda dest=None, **kw: place(robot, dest, **kw),
         "go_home": lambda **kw: go_home(robot, **kw),
+        "estop": estop,
+        "release_estop": release_estop,
     }
     if extra_ns:
         user_ns.update(extra_ns)
@@ -82,6 +102,8 @@ def start_console(
         f"  pickup('object')  — pick up an object\n"
         f"  place('dest')     — place held object\n"
         f"  go_home()         — return to ready\n"
+        f"  estop()           — E-Stop: halt everything\n"
+        f"  release_estop()   — release E-Stop\n"
         f"  robot.<tab>       — tab completion\n"
     )
 
@@ -89,6 +111,7 @@ def start_console(
     viser_viewer = None
     tabs = None
     if viser:
+        import viser as _viser
         from mj_viser import MujocoViewer
 
         viser_viewer = MujocoViewer(
@@ -101,12 +124,12 @@ def start_console(
 
         gui = viser_viewer._server.gui
 
-        # Stop button — above tabs so it's always visible
-        stop_btn = gui.add_button("Stop", color="red")
+        # E-Stop / Resume — above tabs so they're always visible
+        _estop_btn = gui.add_button("E-Stop", color="red", icon=_viser.Icon.ALERT_OCTAGON)
+        _resume_btn = gui.add_button("Release E-Stop", color="green", icon=_viser.Icon.PLAYER_PLAY, visible=False)
 
-        @stop_btn.on_click
-        def _on_stop(event):
-            robot.request_abort()
+        _estop_btn.on_click(lambda _: estop())
+        _resume_btn.on_click(lambda _: release_estop())
 
         tabs = gui.add_tab_group()
 
@@ -184,8 +207,9 @@ def start_console(
         # -- IPython shell -----------------------------------------------------
         class _Prompts(Prompts):
             def in_prompt_tokens(self, cli=None):
+                stopped = " E-STOPPED" if robot.is_abort_requested() else ""
                 return [
-                    (Token.Prompt, f"{robot_name} [{mode}] [{self.shell.execution_count}]: "),
+                    (Token.Prompt, f"{robot_name} [{mode}]{stopped} [{self.shell.execution_count}]: "),
                 ]
 
             def out_prompt_tokens(self, cli=None):
@@ -194,7 +218,7 @@ def start_console(
                 ]
 
         shell = InteractiveShellEmbed(
-            header=banner,
+            banner1=banner,
             user_ns=user_ns,
             colors="neutral",
         )

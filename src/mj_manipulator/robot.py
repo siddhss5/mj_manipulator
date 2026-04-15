@@ -25,11 +25,14 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import mujoco
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from mj_manipulator.arm import Arm
@@ -159,11 +162,15 @@ class RobotBase:
     # -- Abort -----------------------------------------------------------------
 
     def request_abort(self):
+        if not self._abort_event.is_set():
+            logger.warning("⛔ E-Stop activated — all execution halted")
         if self._context is not None and hasattr(self._context, "ownership") and self._context.ownership is not None:
             self._context.ownership.abort_all()
         self._abort_event.set()
 
     def clear_abort(self):
+        if self._abort_event.is_set():
+            logger.warning("✓ E-Stop cleared — resuming")
         if self._context is not None and hasattr(self._context, "ownership") and self._context.ownership is not None:
             self._context.ownership.clear_all()
         self._abort_event.clear()

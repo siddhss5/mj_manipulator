@@ -38,6 +38,14 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
+def _estop_active(robot) -> bool:
+    """Check if E-Stop is active. Logs a warning so the user knows why the primitive was skipped."""
+    if robot.is_abort_requested():
+        logger.warning("⛔ E-Stop is active — command ignored. Click Resume to clear.")
+        return True
+    return False
+
+
 def _tick_tree(root: py_trees.behaviour.Behaviour, verbose: bool = False) -> bool:
     """Reset and tick a tree to completion. Returns True if SUCCESS."""
     for node in root.iterate():
@@ -342,7 +350,7 @@ def pickup(
     if ctx is None:
         raise RuntimeError("No active execution context. Use 'with robot.sim() as ctx:'")
 
-    if robot.is_abort_requested():
+    if _estop_active(robot):
         return False
     try:
         return _pickup_inner(robot, ctx, target, arm=arm, verbose=verbose)
@@ -454,7 +462,7 @@ def place(
             logger.warning("Place failed: no arm is holding an object")
             return False
 
-    if robot.is_abort_requested():
+    if _estop_active(robot):
         return False
     try:
         return _place_inner(robot, ctx, destination, arm=arm, verbose=verbose)
@@ -521,7 +529,7 @@ def go_home(
     if ctx is None:
         raise RuntimeError("No active execution context. Use 'with robot.sim() as ctx:'")
 
-    if robot.is_abort_requested():
+    if _estop_active(robot):
         return False
     try:
         return _go_home_inner(robot, ctx, arm=arm, verbose=verbose)
