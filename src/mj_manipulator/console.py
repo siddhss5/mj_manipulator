@@ -59,15 +59,25 @@ def start_console(
 
     mode = "physics" if physics else "kinematic"
 
-    # -- Build namespace -------------------------------------------------------
+    # -- E-Stop / Resume (shared by CLI and browser) ----------------------------
+    _estop_btn = None
+    _resume_btn = None
+
     def stop():
         """E-Stop: halt all execution. Call resume() to clear."""
         robot.request_abort()
+        if _estop_btn is not None:
+            _estop_btn.visible = False
+            _resume_btn.visible = True
 
     def resume():
         """Clear E-Stop and allow execution again."""
         robot.clear_abort()
+        if _estop_btn is not None:
+            _estop_btn.visible = True
+            _resume_btn.visible = False
 
+    # -- Build namespace -------------------------------------------------------
     user_ns: dict = {
         "robot": robot,
         "np": np,
@@ -115,20 +125,11 @@ def start_console(
         gui = viser_viewer._server.gui
 
         # E-Stop / Resume — above tabs so they're always visible
-        estop_btn = gui.add_button("E-Stop", color="red", icon=_viser.Icon.ALERT_OCTAGON)
-        resume_btn = gui.add_button("Resume", color="green", icon=_viser.Icon.PLAYER_PLAY, visible=False)
+        _estop_btn = gui.add_button("E-Stop", color="red", icon=_viser.Icon.ALERT_OCTAGON)
+        _resume_btn = gui.add_button("Resume", color="green", icon=_viser.Icon.PLAYER_PLAY, visible=False)
 
-        @estop_btn.on_click
-        def _on_estop(event):
-            robot.request_abort()
-            estop_btn.visible = False
-            resume_btn.visible = True
-
-        @resume_btn.on_click
-        def _on_resume(event):
-            robot.clear_abort()
-            resume_btn.visible = False
-            estop_btn.visible = True
+        _estop_btn.on_click(lambda _: stop())
+        _resume_btn.on_click(lambda _: resume())
 
         tabs = gui.add_tab_group()
 

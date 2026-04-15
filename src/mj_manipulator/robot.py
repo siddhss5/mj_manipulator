@@ -170,7 +170,7 @@ class RobotBase:
 
     def clear_abort(self):
         if self._abort_event.is_set():
-            logger.info("✓ E-Stop cleared — resuming")
+            logger.warning("✓ E-Stop cleared — resuming")
         if self._context is not None and hasattr(self._context, "ownership") and self._context.ownership is not None:
             self._context.ownership.clear_all()
         self._abort_event.clear()
