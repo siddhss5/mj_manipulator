@@ -89,6 +89,7 @@ def start_console(
     viser_viewer = None
     tabs = None
     if viser:
+        import viser as _viser
         from mj_viser import MujocoViewer
 
         viser_viewer = MujocoViewer(
@@ -101,12 +102,25 @@ def start_console(
 
         gui = viser_viewer._server.gui
 
-        # Stop button — above tabs so it's always visible
-        stop_btn = gui.add_button("Stop", color="red")
+        # E-Stop / Resume — above tabs so they're always visible
+        estop_btn = gui.add_button(
+            "E-Stop", color="red", icon=_viser.Icon.ALERT_OCTAGON
+        )
+        resume_btn = gui.add_button(
+            "Resume", color="green", icon=_viser.Icon.PLAYER_PLAY, visible=False
+        )
 
-        @stop_btn.on_click
-        def _on_stop(event):
+        @estop_btn.on_click
+        def _on_estop(event):
             robot.request_abort()
+            estop_btn.visible = False
+            resume_btn.visible = True
+
+        @resume_btn.on_click
+        def _on_resume(event):
+            robot.clear_abort()
+            resume_btn.visible = False
+            estop_btn.visible = True
 
         tabs = gui.add_tab_group()
 
