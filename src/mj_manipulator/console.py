@@ -216,7 +216,7 @@ def start_console(
                 ]
 
         shell = InteractiveShellEmbed(
-            header=banner,
+            banner1=banner,
             user_ns=user_ns,
             colors="neutral",
         )
