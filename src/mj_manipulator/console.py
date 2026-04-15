@@ -63,15 +63,15 @@ def start_console(
     _estop_btn = None
     _resume_btn = None
 
-    def stop():
-        """E-Stop: halt all execution. Call resume() to clear."""
+    def estop():
+        """E-Stop: halt all execution. Call release_estop() to clear."""
         robot.request_abort()
         if _estop_btn is not None:
             _estop_btn.visible = False
             _resume_btn.visible = True
 
-    def resume():
-        """Clear E-Stop and allow execution again."""
+    def release_estop():
+        """Release E-Stop and allow execution again."""
         robot.clear_abort()
         if _estop_btn is not None:
             _estop_btn.visible = True
@@ -84,8 +84,8 @@ def start_console(
         "pickup": lambda target=None, **kw: pickup(robot, target, **kw),
         "place": lambda dest=None, **kw: place(robot, dest, **kw),
         "go_home": lambda **kw: go_home(robot, **kw),
-        "stop": stop,
-        "resume": resume,
+        "estop": estop,
+        "release_estop": release_estop,
     }
     if extra_ns:
         user_ns.update(extra_ns)
@@ -102,8 +102,8 @@ def start_console(
         f"  pickup('object')  — pick up an object\n"
         f"  place('dest')     — place held object\n"
         f"  go_home()         — return to ready\n"
-        f"  stop()            — E-Stop: halt everything\n"
-        f"  resume()          — clear E-Stop\n"
+        f"  estop()           — E-Stop: halt everything\n"
+        f"  release_estop()   — release E-Stop\n"
         f"  robot.<tab>       — tab completion\n"
     )
 
@@ -126,10 +126,10 @@ def start_console(
 
         # E-Stop / Resume — above tabs so they're always visible
         _estop_btn = gui.add_button("E-Stop", color="red", icon=_viser.Icon.ALERT_OCTAGON)
-        _resume_btn = gui.add_button("Resume", color="green", icon=_viser.Icon.PLAYER_PLAY, visible=False)
+        _resume_btn = gui.add_button("Release E-Stop", color="green", icon=_viser.Icon.PLAYER_PLAY, visible=False)
 
-        _estop_btn.on_click(lambda _: stop())
-        _resume_btn.on_click(lambda _: resume())
+        _estop_btn.on_click(lambda _: estop())
+        _resume_btn.on_click(lambda _: release_estop())
 
         tabs = gui.add_tab_group()
 
