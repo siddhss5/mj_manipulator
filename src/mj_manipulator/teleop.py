@@ -391,24 +391,28 @@ class TeleopController:
         if in_collision and mode == SafetyMode.REJECT:
             return TeleopState.UNREACHABLE
 
-        # Clamp per-joint step to prevent IK flips
+        # Clamp per-joint position step to the arm's velocity limits.
+        # This ensures the position target and velocity feedforward are
+        # consistent — both respect the same limits. The max step per
+        # joint per tick is vel_limit[j] * dt.
         q_current = self._arm.get_joint_positions()
         delta = q_target - q_current
-        max_step = self._config.max_joint_step
-        max_component = float(np.max(np.abs(delta)))
-        if max_component > max_step:
-            q_target = q_current + delta * (max_step / max_component)
-
-        # Compute velocity feedforward, clamped to the arm's kinematic
-        # velocity limits. Without clamping, max_joint_step / twist_dt
-        # can exceed the velocity limits by 2-4x (e.g. 0.05/0.008 =
-        # 6.25 rad/s vs UR5e shoulder limit of 1.57 rad/s), causing the
-        # PD controller to overshoot and the arm to jitter during teleop.
         dt = self._config.twist_dt
-        qd = (q_target - q_current) / max(dt, 1e-6)
         limits = getattr(self._arm.config, "kinematic_limits", None)
         if limits is not None:
-            qd = np.clip(qd, -limits.velocity, limits.velocity)
+            max_step = limits.velocity * dt  # per-joint, rad/tick
+            delta = np.clip(delta, -max_step, max_step)
+        else:
+            # Fallback: uniform step limit (for arms without kinematic_limits)
+            max_step = self._config.max_joint_step
+            max_component = float(np.max(np.abs(delta)))
+            if max_component > max_step:
+                delta = delta * (max_step / max_component)
+        q_target = q_current + delta
+
+        # Velocity feedforward — now guaranteed within limits because
+        # delta was already clamped to vel_limit * dt above.
+        qd = delta / max(dt, 1e-6)
 
         arm_name = self._arm.config.name
         self._ctx.step_cartesian(arm_name, q_target, qd)
