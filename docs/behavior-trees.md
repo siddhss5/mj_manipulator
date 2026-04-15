@@ -84,14 +84,22 @@ Here's the full recycling demo — sort every object into a bin:
 
 ```python
 def sort_all():
-    while robot.pickup():
+    while True:
+        robot.perception.refresh()  # observe the table
+        if not robot.pickup():      # try to grab something
+            break
         robot.place("recycle_bin")
-        robot.go_home()        # reset arm + base between cycles
+        robot.go_home()             # reset arm + base
     robot.go_home()
 ```
 
-This is four lines because `robot.pickup()` and `robot.place()` handle
-two layers of complexity internally:
+`refresh()` observes the scene before each pickup. In sim, it reads
+ground-truth poses and runs them through the object tracker (same
+pipeline as hardware). On real hardware, it triggers a camera +
+detection + pose estimation call. The rest of the loop is identical
+on both platforms.
+
+`robot.pickup()` and `robot.place()` handle two layers internally:
 
 **Inside the BT** (auto-generated, see tree diagrams above): find
 grasps, plan, move, grasp/release. This is the action sequence — it
