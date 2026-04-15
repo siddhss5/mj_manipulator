@@ -573,19 +573,14 @@ def _go_home_inner(robot, ctx, *, arm, verbose) -> bool:
             path = None
 
         if path is None:
-            # Retract up first, then retry
-            logger.warning("go_home %s: retract up and retry", side)
-            from mj_manipulator.cartesian import CartesianController
+            # Retract up using safe_retract (planned + retimed)
+            logger.warning("go_home %s: safe retract up and retry", side)
+            from mj_manipulator.safe_retract import safe_retract
 
-            arm_name = arm_obj.config.name
-
-            def _step_fn(q, qd):
-                ctx.step_cartesian(arm_name, q, qd)
-
-            ctrl = CartesianController.from_arm(arm_obj, step_fn=_step_fn)
-            ctrl.move(
+            safe_retract(
+                arm_obj,
+                ctx,
                 np.array([0.0, 0.0, 0.10, 0.0, 0.0, 0.0]),
-                dt=ctx.control_dt,
                 max_distance=0.10,
                 stop_condition=abort_fn,
             )
