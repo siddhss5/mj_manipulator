@@ -137,20 +137,6 @@ def _arm_unavailable(robot, arm_name: str) -> bool:
 _arm_preempted = _arm_unavailable
 
 
-def _deactivate_teleop_for_arms(robot, arms: list[str] | None = None) -> None:
-    """Deactivate teleop on specified arms (or all) before a primitive."""
-    ctx = getattr(robot, "_active_context", None)
-    if ctx is None or not hasattr(ctx, "ownership") or ctx.ownership is None:
-        return
-    from mj_manipulator.ownership import OwnerKind
-
-    arm_names = arms if arms is not None else ctx.ownership.arm_names
-    for arm_name in arm_names:
-        kind, _ = ctx.ownership.owner_of(arm_name)
-        if kind == OwnerKind.TELEOP:
-            ctx._deactivate_teleop_for(arm_name)
-
-
 def _recover(robot, ctx, sides: list[str]) -> None:
     """Uniform failure recovery: send arm(s) home.
 
@@ -356,7 +342,8 @@ def pickup(
     if ctx is None:
         raise RuntimeError("No active execution context. Use 'with robot.sim() as ctx:'")
 
-    robot.clear_abort()
+    if robot.is_abort_requested():
+        return False
     try:
         return _pickup_inner(robot, ctx, target, arm=arm, verbose=verbose)
     except KeyboardInterrupt:
@@ -366,8 +353,6 @@ def pickup(
             _set_hud_action(robot, side, "⊘ interrupted")
         _sync_viewer(robot)
         return False
-    finally:
-        robot.clear_abort()
 
 
 def _pickup_inner(robot, ctx, target, *, arm, verbose) -> bool:
@@ -418,13 +403,17 @@ def _pickup_inner(robot, ctx, target, *, arm, verbose) -> bool:
         _set_hud_action(robot, side, f"✗ pickup({desc})")
         sides_tried.append(side)
 
-        # Clear abort from this arm's BT run (e.g. drop-detection
-        # abort, teleop preemption) so the other arm gets a chance.
-        robot.clear_abort()
+        # If e-stop was pressed, exit immediately
+        if robot.is_abort_requested():
+            break
+
+        # Clear per-arm abort (teleop preemption, drop detection)
+        # so the other arm can try. Don't clear the global e-stop.
+        if ctx.ownership is not None:
+            ctx.ownership.clear_abort(side)
 
         # Before trying the next arm, send this arm home
-        # so it doesn't block the workspace (skip if preempted)
-        if i < len(sides) - 1 and not _arm_preempted(robot, side):
+        if i < len(sides) - 1 and not _arm_unavailable(robot, side):
             go_home(robot, arm=side)
 
     _report_pickup_failure(robot, sides_tried, target)
@@ -465,7 +454,8 @@ def place(
             logger.warning("Place failed: no arm is holding an object")
             return False
 
-    robot.clear_abort()
+    if robot.is_abort_requested():
+        return False
     try:
         return _place_inner(robot, ctx, destination, arm=arm, verbose=verbose)
     except KeyboardInterrupt:
@@ -474,8 +464,6 @@ def place(
         _set_hud_action(robot, arm, "⊘ interrupted")
         _sync_viewer(robot)
         return False
-    finally:
-        robot.clear_abort()
 
 
 def _place_inner(robot, ctx, destination, *, arm, verbose) -> bool:
@@ -533,15 +521,14 @@ def go_home(
     if ctx is None:
         raise RuntimeError("No active execution context. Use 'with robot.sim() as ctx:'")
 
-    robot.clear_abort()
+    if robot.is_abort_requested():
+        return False
     try:
         return _go_home_inner(robot, ctx, arm=arm, verbose=verbose)
     except KeyboardInterrupt:
         robot.request_abort()
         logger.warning("go_home interrupted by user")
         return False
-    finally:
-        robot.clear_abort()
 
 
 def _go_home_inner(robot, ctx, *, arm, verbose) -> bool:

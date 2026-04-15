@@ -93,6 +93,17 @@ class OwnershipRegistry:
             logger.debug("Acquired %s for %s", arm_name, kind.value)
             return True
 
+    def force_release_all(self) -> None:
+        """Reset all arms to IDLE regardless of current owner.
+
+        Used by the global e-stop — unconditionally releases
+        everything so the system is in a clean state.
+        """
+        with self._lock:
+            for name in self._owners:
+                self._owners[name] = (OwnerKind.IDLE, None)
+                self._abort_events[name].clear()
+
     def release(self, arm_name: str, owner: object) -> None:
         """Release an arm. Only the current owner can release.
 
