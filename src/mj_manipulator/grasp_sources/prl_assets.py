@@ -455,11 +455,26 @@ class PrlAssetsGraspSource:
 
 
 def _get_hand(hand_type: str):
-    """Get the TSR hand model for a gripper type."""
-    from tsr.hands import FrankaHand, Robotiq2F140
+    """Get the TSR hand model for a gripper type.
 
-    if "franka" in hand_type.lower():
+    ``hand_type`` is typically ``gripper.hand_type`` (set by the gripper
+    class). Matches are substring-based, case-insensitive:
+
+    - contains ``"franka"`` → :class:`tsr.hands.FrankaHand`
+    - contains ``"2f85"``   → :class:`tsr.hands.Robotiq2F85`
+    - anything else (including ``"robotiq_2f140"``, ``"robotiq"``)
+      → :class:`tsr.hands.Robotiq2F140`
+
+    The 2F-140 default preserves backward compatibility with Geodude
+    and any other caller that still reports ``hand_type="robotiq"``.
+    """
+    from tsr.hands import FrankaHand, Robotiq2F85, Robotiq2F140
+
+    ht = hand_type.lower()
+    if "franka" in ht:
         return FrankaHand()
+    if "2f85" in ht:
+        return Robotiq2F85()
     return Robotiq2F140()
 
 
