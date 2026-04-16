@@ -49,6 +49,7 @@ def build_franka_robot(scene: dict) -> "FrankaDemoRobot":
     from mj_manipulator.arms.franka import (
         FRANKA_HOME,
         add_franka_ee_site,
+        add_franka_finger_exclude,
         add_franka_gravcomp,
         add_franka_pad_friction,
         create_franka_arm,
@@ -69,6 +70,7 @@ def build_franka_robot(scene: dict) -> "FrankaDemoRobot":
     add_franka_ee_site(spec)  # adds a named 'ee' site the IK solver targets
     add_franka_gravcomp(spec)  # body-level gravcomp
     add_franka_pad_friction(spec)  # higher friction on finger pads
+    add_franka_finger_exclude(spec)  # skip finger↔finger self-collision (models hard stop)
 
     # 2. Add a worktop plate if the scenario has objects to scatter.
     #    (A scenario without objects doesn't need a worktop.)

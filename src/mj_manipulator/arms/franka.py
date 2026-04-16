@@ -243,6 +243,30 @@ def add_franka_pad_friction(
             geom.priority = 1
 
 
+def add_franka_finger_exclude(spec: mujoco.MjSpec) -> None:
+    """Exclude the ``left_finger`` ↔ ``right_finger`` contact pair.
+
+    Must be called **before** ``spec.compile()``.
+
+    The menagerie Franka models the two fingers as independent rigid
+    bodies with their collision boxes meeting at the palm. When the
+    gripper closes on nothing (empty grasp), the solver can't keep the
+    fingers from interpenetrating — they push into each other by up to
+    ~20 mm at rest. That persistent penetration looks like a real
+    collision to the motion planner, so every plan from an
+    empty-closed state fails with "start configuration in collision".
+
+    On the real Franka, a parallel-jaw linkage prevents finger-finger
+    contact entirely (mechanical hard stop before the fingertips
+    touch). Excluding the pair matches that hardware behavior and
+    frees the planner to treat an empty-closed gripper as a normal
+    start state.
+    """
+    exclude = spec.add_exclude()
+    exclude.bodyname1 = "left_finger"
+    exclude.bodyname2 = "right_finger"
+
+
 def add_franka_gravcomp(spec: mujoco.MjSpec) -> None:
     """Enable gravity compensation on every Franka body in an MjSpec.
 
