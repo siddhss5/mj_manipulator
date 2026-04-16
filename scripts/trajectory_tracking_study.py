@@ -85,15 +85,15 @@ def build_robot(robot_name: str):
     return env, arm, home
 
 
-def plan_test_motion(arm, home: np.ndarray) -> "Trajectory":
+def plan_test_motion(arm, home: np.ndarray):
     """Plan a home → reach-forward → home motion.
 
     Reach-forward is a pose 30 cm in front of the robot at home height,
     pitched so the EE points down — a representative "approach a can"
     motion that exercises J2-J5 which carry most of the arm's inertia.
-    """
-    import numpy as np
 
+    Returns an :class:`mj_manipulator.trajectory.Trajectory`.
+    """
     # Set to home and get current EE pose
     for i, idx in enumerate(arm.joint_qpos_indices):
         arm.env.data.qpos[idx] = home[i]
@@ -204,7 +204,6 @@ def run_tracking_study(robot_name: str, out_csv: Path | None = None) -> dict:
     # Compute time lag by cross-correlation of joint 1
     # (simpler: peak lag = index of max |err| during acceleration phase)
     # For each joint, the lag ≈ err / desired_velocity at peak velocity
-    t_arr = np.array([s["t"] for s in samples])
     qd_des_arr = np.array([s["qd_des"] for s in samples])
 
     # At peak commanded velocity, lag = q_err / qd_des
@@ -221,7 +220,10 @@ def run_tracking_study(robot_name: str, out_csv: Path | None = None) -> dict:
     print(f"\n=== Tracking report: {robot_name} ===")
     print(f"Trajectory duration: {traj.duration:.2f}s, {len(samples)} samples")
     print()
-    print(f"{'joint':<8}  {'RMS err (rad)':>14}  {'max err (rad)':>14}  {'qd RMS (rad/s)':>14}  {'lag @ peak (ms)':>16}")
+    print(
+        f"{'joint':<8}  {'RMS err (rad)':>14}  {'max err (rad)':>14}  "
+        f"{'qd RMS (rad/s)':>14}  {'lag @ peak (ms)':>16}"
+    )
     print("-" * 80)
     for j in range(n_dof):
         print(
