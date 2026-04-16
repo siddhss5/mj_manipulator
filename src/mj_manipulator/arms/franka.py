@@ -99,6 +99,10 @@ def fix_franka_grip_force(model: mujoco.MjModel, target_force: float = 70.0) -> 
             35 N per finger). The grip-force sweep in tests/grip_sweep.py
             showed 50–140 N all achieve 6/6 on 3-can recycling; 70 N is
             a comfortable middle.
+
+    See ``mj_manipulator/docs/grippers.md`` §2 for the full derivation
+    of the actuator-rewrite recipe; this function is the Franka-specific
+    sibling of :func:`mj_manipulator.grippers.robotiq.fix_robotiq_grip_force`.
     """
     aid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "actuator8")
     if aid < 0:

@@ -237,6 +237,10 @@ def fix_robotiq_grip_force(
         actuator_name: Actuator to fix (default ``"fingers_actuator"``,
             which is the name used by both menagerie 2F-85 and
             geodude_assets 2F-140).
+
+    See ``mj_manipulator/docs/grippers.md`` §2 for the full affine-force
+    derivation, the mechanical-advantage numbers for each gripper, and
+    tuning guidance.
     """
     aid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, prefix + actuator_name)
     if aid < 0:

@@ -27,6 +27,10 @@ Usage::
     uv run python scripts/validate_gripper.py --all
 
 Exits 0 on pass, 1 if any check fails — suitable for CI.
+
+For the underlying math (why the palm-vs-housing rule matters, the
+affine-force actuator bug, pad area vs grip force) and worked
+examples per gripper, see ``mj_manipulator/docs/grippers.md``.
 """
 
 from __future__ import annotations

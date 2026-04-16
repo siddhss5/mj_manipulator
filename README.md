@@ -397,6 +397,8 @@ For adding a new gripper from scratch, see the next section.
 
 `grippers/franka.py` (integrated hand) and `grippers/robotiq.py` (attached 2F-85 or 2F-140) are the complete references. The iiwa 14 demo (`demos/iiwa14_setup.py`) shows how to attach a menagerie gripper to a bare arm via `MjSpec`. This section documents the full workflow the way we walked it for the 2F-85, including what goes wrong and how to diagnose it.
 
+For the *why* behind the rules in this section — the math that makes the palm-placement rule matter, the affine-force equation behind the grip-dropout bug, and the empirical finding that pad area beats grip force for cylindrical objects — see **[`docs/grippers.md`](docs/grippers.md)**. Read the deep-dive once; refer back when debugging.
+
 ### The TSR frame convention (read this first)
 
 Every parallel-jaw grasp in this codebase is computed relative to a canonical **ee_site** frame:
@@ -568,6 +570,8 @@ Also run the integration-level smoke test: in your setup module's scenario, pick
 - **`scripts/validate_gripper.py`** — deterministic 50-samples × N-templates collision sweep + AABB measurement. Automated pass/fail with specific diagnostic messages. Use after each geometry change; suitable for CI.
 - **`scripts/record_gripper_trajectory.py`** — records the joint-qpos trajectory of an open→close physics rollout. Used to build the kinematic trajectory table that `RobotiqGripper` replays in no-physics mode.
 - **`fix_*_grip_force` helpers** — rewrite the gripper actuator to produce a constant force independent of finger gap. One helper per gripper family (`fix_franka_grip_force` in `arms/franka.py`, `fix_robotiq_grip_force` in `grippers/robotiq.py`).
+
+For the underlying math and worked examples, see [`docs/grippers.md`](docs/grippers.md).
 
 ## Behavior Trees
 

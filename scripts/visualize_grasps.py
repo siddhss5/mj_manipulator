@@ -58,6 +58,10 @@ parameters are wrong:
 
 For automated pass/fail plus specific fix suggestions, see the
 companion script :mod:`validate_gripper`.
+
+For the math behind the palm-vs-housing rule and the empirical
+grip-force findings that drove this tooling, see the deep-dive at
+``mj_manipulator/docs/grippers.md``.
 """
 
 from __future__ import annotations
