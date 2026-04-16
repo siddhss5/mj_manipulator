@@ -3,18 +3,24 @@
 
 """CLI entry point for ``python -m mj_manipulator``.
 
-Runs a scenario on a Franka Panda. Scenarios live as Python modules
-under :mod:`mj_manipulator.demos` — each defines a ``scene`` dict and
-optional user-facing functions. See :mod:`mj_manipulator.scenarios`
-for the protocol.
+Runs a scenario on one of the bundled robots. Scenarios live as
+Python modules under :mod:`mj_manipulator.demos` — each defines a
+``scene`` dict and optional user-facing functions. See
+:mod:`mj_manipulator.scenarios` for the protocol.
+
+Supported robots (``--robot``):
+
+- ``franka`` (default): Franka Panda with its built-in hand.
+- ``iiwa14``: KUKA LBR iiwa 14 with a Robotiq 2F-85 attached.
 
 Usage::
 
-    python -m mj_manipulator                           # scenario picker
-    python -m mj_manipulator --scenario recycling      # run directly
-    python -m mj_manipulator --list-scenarios          # print scenarios and exit
-    python -m mj_manipulator --no-physics              # kinematic mode
-    python -m mj_manipulator --no-viser                # headless
+    python -m mj_manipulator                               # Franka + picker
+    python -m mj_manipulator --robot iiwa14                # iiwa14 + picker
+    python -m mj_manipulator --scenario recycling          # run directly
+    python -m mj_manipulator --robot iiwa14 --scenario recycling
+    python -m mj_manipulator --list-scenarios              # print and exit
+    python -m mj_manipulator --no-physics --no-viser       # flags compose
 """
 
 from __future__ import annotations
@@ -30,10 +36,22 @@ from mj_manipulator import scenarios
 _SCENARIO_DIR = Path(__file__).parent / "demos"
 
 
+_ROBOTS = {
+    "franka": ("Franka", "mj_manipulator.demos.franka_setup", "build_franka_robot"),
+    "iiwa14": ("iiwa14", "mj_manipulator.demos.iiwa14_setup", "build_iiwa14_robot"),
+}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="mj_manipulator",
-        description="Run a manipulation scenario on a Franka Panda.",
+        description="Run a manipulation scenario on a bundled robot.",
+    )
+    parser.add_argument(
+        "--robot",
+        choices=sorted(_ROBOTS.keys()),
+        default="franka",
+        help="Which robot to load (default: franka).",
     )
     parser.add_argument(
         "--scenario",
@@ -60,14 +78,16 @@ def main() -> None:
         sys.exit(0)
 
     scene = getattr(scenario_module, "scene", None) or {}
-    name = scenario_module.__name__
+    scenario_name = scenario_module.__name__
 
-    print(f"\nLoading Franka with scenario '{name}'...", flush=True)
+    # Dispatch to the chosen robot's builder.
+    import importlib
 
-    # Build the robot, apply the scene, launch the console.
-    from mj_manipulator.demos.franka_setup import build_franka_robot
-
-    robot = build_franka_robot(scene)
+    display_name, builder_module, builder_fn = _ROBOTS[args.robot]
+    print(f"\nLoading {display_name} with scenario '{scenario_name}'...", flush=True)
+    module = importlib.import_module(builder_module)
+    build_fn = getattr(module, builder_fn)
+    robot = build_fn(scene)
 
     from mj_manipulator.console import start_console
 
@@ -79,7 +99,7 @@ def main() -> None:
         robot,
         physics=not args.no_physics,
         viser=not args.no_viser,
-        robot_name="Franka",
+        robot_name=display_name,
         extra_ns=extra_ns,
     )
 
