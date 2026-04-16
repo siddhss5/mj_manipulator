@@ -254,16 +254,35 @@ class MuJoCoEAIKSolver:
         T_world_base = self._get_base_pose()
         return np.linalg.inv(T_world_base) @ pose_world
 
-    def solve(self, pose: np.ndarray, q_init: np.ndarray | None = None) -> list[np.ndarray]:
+    def solve(
+        self,
+        pose: np.ndarray,
+        q_init: np.ndarray | None = None,
+        *,
+        discretizations: list[np.ndarray] | None = None,
+    ) -> list[np.ndarray]:
         """Solve IK for a world-frame target pose.
 
         For 6-DOF arms, solves analytically and returns all solutions.
-        For 7-DOF arms, discretizes the locked joint and collects all
-        solutions verified by FK round-trip.
+
+        For redundant arms (7-DOF here, with one locked/discretized
+        joint), sweeps a set of values for the locked joint and returns
+        every solution whose FK matches within tolerance. The sweep
+        set defaults to the evenly-spaced discretization computed at
+        init; callers can override via ``discretizations`` — for
+        example, to force a single value (the arm's current locked-joint
+        angle, for smooth Cartesian paths) or a narrow window around
+        some anchor.
 
         Args:
             pose: 4x4 target pose in world frame (at the EE site).
-            q_init: Ignored (EAIK is analytical).
+            q_init: Ignored (EAIK is analytical; present for
+                :class:`IKSolver` protocol compatibility).
+            discretizations: Optional per-locked-joint value arrays.
+                For a 6-DOF arm: ignored. For a single-locked-joint 7-DOF
+                arm: a length-1 list whose first array is the set of
+                values to try for the locked joint. ``None`` uses the
+                precomputed full-range sweep.
 
         Returns:
             List of joint configurations (may include out-of-limits).
@@ -285,9 +304,19 @@ class MuJoCoEAIKSolver:
                 return []
             return [result.Q[i].copy() for i in range(result.num_solutions()) if not result.is_LS[i]]
 
-        # 7-DOF: discretize locked joint
+        # 7-DOF: sweep the locked joint.
+        if discretizations is None:
+            values = self._discretize_values
+        else:
+            if len(discretizations) != 1:
+                raise ValueError(
+                    f"solve() expects 1 discretization array for this arm "
+                    f"(one locked joint), got {len(discretizations)}."
+                )
+            values = np.asarray(discretizations[0], dtype=float)
+
         all_solutions = []
-        for theta in self._discretize_values:
+        for theta in values:
             robot = self._HPRobot(
                 self._H,
                 self._P,
@@ -307,17 +336,26 @@ class MuJoCoEAIKSolver:
 
         return all_solutions
 
-    def solve_valid(self, pose: np.ndarray, q_init: np.ndarray | None = None) -> list[np.ndarray]:
+    def solve_valid(
+        self,
+        pose: np.ndarray,
+        q_init: np.ndarray | None = None,
+        *,
+        discretizations: list[np.ndarray] | None = None,
+    ) -> list[np.ndarray]:
         """Solve IK and return only valid (in-limits) solutions.
 
         Args:
             pose: 4x4 target pose in world frame (at the EE site).
-            q_init: Ignored (EAIK is analytical).
+            q_init: Ignored (EAIK is analytical; present for
+                :class:`IKSolver` protocol compatibility).
+            discretizations: Optional per-locked-joint value arrays,
+                forwarded to :meth:`solve`. See :meth:`solve` for details.
 
         Returns:
             List of valid joint configurations.
         """
-        solutions = self.solve(pose)
+        solutions = self.solve(pose, q_init=q_init, discretizations=discretizations)
 
         if not solutions or self._joint_limits is None:
             return solutions

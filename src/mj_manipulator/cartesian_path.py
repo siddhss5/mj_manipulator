@@ -47,6 +47,8 @@ def plan_cartesian_path(
     control_dt: float = 0.008,
     max_branch_jump: float | None = None,
     partial_ok: bool = False,
+    redundancy_window_rad: float = 0.05,
+    redundancy_samples: int = 5,
 ) -> Trajectory:
     """Plan a joint-space trajectory that follows an SE(3) waypoint sequence.
 
@@ -62,12 +64,11 @@ def plan_cartesian_path(
     boundaries).
 
     The IK selection is **local greedy**: at each waypoint we pick the
-    valid solution nearest to the previous commanded configuration. This
-    is robust for short monotonic paths (lift, approach, retreat) where
-    the IK branch does not change along the path. For long paths that
-    cross kinematic singularities or branch boundaries, this can fail
-    without backtracking — use ``max_branch_jump`` to catch the failure
-    early rather than silently producing a discontinuous path.
+    valid solution nearest to the previous commanded configuration. For
+    redundant arms (the EAIK discretization pattern), we bound how much
+    the locked joint can drift per waypoint — see ``redundancy_window_rad``
+    and ``redundancy_samples`` below — to keep scripted paths on a single
+    branch without silently snapping to a far-away discretization value.
 
     Args:
         arm: Arm to plan for. Must have an IK solver attached.
@@ -93,6 +94,19 @@ def plan_cartesian_path(
             Still raises if the very first waypoint has no IK solution
             (no feasible prefix exists). ``max_branch_jump`` failures
             are treated the same as IK failures under ``partial_ok``.
+        redundancy_window_rad: For redundant arms, how much the
+            discretized/locked joint is allowed to drift per waypoint
+            (radians, plus-or-minus). The IK solver will be asked to try
+            values in ``[q_locked - window, q_locked + window]`` where
+            ``q_locked`` is the locked joint's value at the previous
+            waypoint. Should be on the same scale as the per-step motion
+            of the other joints. Default 0.05 rad (~3°), matched to
+            5–10 mm Cartesian segment spacing. Ignored for non-redundant
+            arms.
+        redundancy_samples: Number of samples to draw from the window.
+            Default 5 (current value ± two steps on each side). Must be
+            odd so the previous value is always one of the candidates.
+            Ignored for non-redundant arms.
 
     Returns:
         Time-parameterized :class:`~mj_manipulator.trajectory.Trajectory`
@@ -108,6 +122,11 @@ def plan_cartesian_path(
             being infeasible raises), or the nearest-branch selection
             exceeds ``max_branch_jump`` (same ``partial_ok`` semantics).
     """
+    if redundancy_samples < 1 or redundancy_samples % 2 == 0:
+        raise ValueError(
+            f"redundancy_samples must be a positive odd integer "
+            f"(so the previous locked-joint value is always a candidate); got {redundancy_samples}"
+        )
     if arm.ik_solver is None:
         raise RuntimeError(
             f"plan_cartesian_path requires an arm with an IK solver; arm '{arm.config.name}' was created without one."
@@ -120,12 +139,31 @@ def plan_cartesian_path(
 
     joint_path: list[np.ndarray] = [q_current]
 
+    # Scripted Cartesian paths are meant to stay on a single IK branch
+    # as they go. For redundant arms with an explicit locked joint
+    # (the EAIK discretization pattern), we let the locked joint drift
+    # only within ``redundancy_window_rad`` of its previous value per
+    # waypoint — same per-step budget a non-redundant joint gets from
+    # the Cartesian step itself. Non-EAIK solvers (or 6-DOF arms)
+    # ignore ``discretizations`` — the call still works.
+    locked_idx = getattr(arm.ik_solver, "fixed_joint_index", None)
+
     for i, pose in enumerate(waypoints):
         pose = np.asarray(pose, dtype=float)
         if pose.shape != (4, 4):
             raise ValueError(f"plan_cartesian_path: waypoint {i} has shape {pose.shape}, expected (4, 4)")
 
-        solutions = arm.ik_solver.solve_valid(pose, q_init=q_current)
+        ik_kwargs = {"q_init": q_current}
+        if locked_idx is not None:
+            center = float(q_current[locked_idx])
+            locked_values = np.linspace(
+                center - redundancy_window_rad,
+                center + redundancy_window_rad,
+                redundancy_samples,
+            )
+            ik_kwargs["discretizations"] = [locked_values]
+
+        solutions = arm.ik_solver.solve_valid(pose, **ik_kwargs)
         if not solutions:
             if partial_ok and i > 0:
                 logger.info(

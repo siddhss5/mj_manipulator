@@ -252,3 +252,126 @@ class TestSafeRetractCollision:
 
         # Expect to stop well before 15 cm — somewhere in (1 cm, 10 cm).
         assert 0.01 < z_travel < 0.10, f"Expected early stop, got z_travel={z_travel * 1000:.1f}mm"
+
+
+# ---------------------------------------------------------------------------
+# Joint-space smoothness — catches IK branch-flips
+# ---------------------------------------------------------------------------
+#
+# The failure mode: IK solver returns solutions that don't include the arm's
+# current config even when the current pose is the target. plan_cartesian_path
+# picks the "nearest" of the wrong branches, so the arm jumps to a different
+# branch on the very first waypoint. The motion is Cartesian-straight for
+# the end-effector but internally involves a huge joint-space sweep.
+#
+# We test this by calling plan_cartesian_path directly and inspecting the
+# joint path for unreasonable per-segment jumps.
+
+
+class TestCartesianPathSmoothness:
+    """plan_cartesian_path should not jump IK branches on the first waypoint."""
+
+    def test_first_waypoint_is_close_to_start(self, franka_arm_at_home):
+        """A 5mm step up shouldn't require a huge joint motion."""
+        import mujoco
+
+        from mj_manipulator.cartesian_path import plan_cartesian_path, translational_waypoints
+
+        arm = franka_arm_at_home
+
+        # Set to home explicitly
+        for i, idx in enumerate(arm.joint_qpos_indices):
+            arm.env.data.qpos[idx] = FRANKA_HOME[i]
+        mujoco.mj_forward(arm.env.model, arm.env.data)
+
+        start_pose = arm.get_ee_pose()
+        q_start = arm.get_joint_positions()
+
+        # Single 5mm step up
+        waypoints = translational_waypoints(start_pose, np.array([0.0, 0.0, 1.0]), 0.005, segment_length=0.005)
+        trajectory = plan_cartesian_path(arm, waypoints, q_start=q_start)
+
+        # The first commanded joint position should be within a reasonable
+        # distance of q_start. A 5mm Cartesian step on a 7-DOF arm away
+        # from singularity should be ~0.05-0.15 rad per joint at most,
+        # vector norm well under 0.5 rad.
+        q_first = trajectory.positions[0]
+        jump = float(np.linalg.norm(q_first - q_start))
+        assert jump < 0.5, (
+            f"First commanded config is {jump:.3f} rad from q_start; "
+            f"expected << 0.5 rad for a 5mm Cartesian step. This is the IK "
+            f"branch-flip bug (#124)."
+        )
+
+    def test_joint_path_has_no_discontinuities(self, franka_arm_at_home):
+        """Consecutive joint configs should be within one segment's IK jump."""
+        import mujoco
+
+        from mj_manipulator.cartesian_path import plan_cartesian_path, translational_waypoints
+
+        arm = franka_arm_at_home
+
+        for i, idx in enumerate(arm.joint_qpos_indices):
+            arm.env.data.qpos[idx] = FRANKA_HOME[i]
+        mujoco.mj_forward(arm.env.model, arm.env.data)
+
+        start_pose = arm.get_ee_pose()
+        q_start = arm.get_joint_positions()
+
+        # 10cm lift at 5mm segments → 20 waypoints
+        waypoints = translational_waypoints(start_pose, np.array([0.0, 0.0, 1.0]), 0.10, segment_length=0.005)
+        trajectory = plan_cartesian_path(arm, waypoints, q_start=q_start)
+
+        # Walk through the sampled joint path and verify no step exceeds a
+        # physically sensible bound. A 5mm EE step should yield ~0.1 rad
+        # norm max; we allow 0.3 to leave margin for retiming resampling.
+        positions = np.asarray(trajectory.positions)
+        for i in range(1, len(positions)):
+            step = float(np.linalg.norm(positions[i] - positions[i - 1]))
+            assert step < 0.3, (
+                f"Joint path step {i}: {step:.3f} rad between samples. "
+                f"Expected << 0.3 rad per control step for a smooth Cartesian retract."
+            )
+
+    def test_safe_retract_does_not_cause_large_initial_jump(self, franka_arm_at_home):
+        """safe_retract should not produce a commanded jump on its first control cycle.
+
+        This is the end-to-end version of test_first_waypoint_is_close_to_start —
+        it catches the IK branch-flip as manifest in the retract trajectory.
+        """
+        import mujoco
+
+        from mj_manipulator.safe_retract import safe_retract
+        from mj_manipulator.sim_context import SimContext
+
+        arm = franka_arm_at_home
+        env = arm.env
+
+        for i, idx in enumerate(arm.joint_qpos_indices):
+            env.data.qpos[idx] = FRANKA_HOME[i]
+        mujoco.mj_forward(env.model, env.data)
+
+        q_start = arm.get_joint_positions()
+
+        # Run safe_retract in kinematic mode (no PD, direct joint sets)
+        # so we can measure the commanded-vs-actual gap precisely.
+        with SimContext(
+            env.model,
+            env.data,
+            {arm.config.name: arm},
+            physics=False,
+            headless=True,
+        ) as ctx:
+            twist = np.array([0.0, 0.0, 0.1, 0.0, 0.0, 0.0])
+            safe_retract(arm, ctx, twist=twist, max_distance=0.05)
+
+        q_end = arm.get_joint_positions()
+        total_joint_motion = float(np.linalg.norm(q_end - q_start))
+
+        # A 5cm Cartesian lift at Franka home should correspond to modest
+        # joint motion — roughly 0.3-0.6 rad total norm. If we see > 2 rad
+        # norm it means the arm swept through a branch flip mid-trajectory.
+        assert total_joint_motion < 1.5, (
+            f"safe_retract produced total joint motion of {total_joint_motion:.2f} rad "
+            f"for a 5cm lift — symptom of IK branch-flip (#124)."
+        )
