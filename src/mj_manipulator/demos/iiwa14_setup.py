@@ -63,23 +63,50 @@ def build_iiwa14_robot(scene: dict) -> "IIWA14DemoRobot":
         sys.exit(1)
 
     spec = mujoco.MjSpec.from_file(str(scene_path))
-    add_iiwa14_ee_site(spec)  # adds 'grasp_site' on link7
     add_iiwa14_gravcomp(spec)
+    # We still add an ee site on link7 so the arm has a target for
+    # plans that don't use the gripper (rare). The gripper attach
+    # below is anchored to this site.
+    add_iiwa14_ee_site(spec, site_name="link7_ee")
 
     # 2. Add a worktop plate if the scenario needs objects.
     has_objects = bool(scene.get("objects") or scene.get("fixtures"))
     if has_objects:
         _add_iiwa14_worktop(spec)
 
-    # 3. Attach the Robotiq 2F-85 at the grasp_site.
+    # 3. Attach the Robotiq 2F-85 at link7_ee.
     gripper_xml = find_menagerie() / "robotiq_2f85" / "2f85.xml"
     if not gripper_xml.exists():
         print(f"ERROR: Robotiq 2F-85 not found at {gripper_xml}")
         sys.exit(1)
     gripper_spec = mujoco.MjSpec.from_file(str(gripper_xml))
 
-    grasp_site = spec.site("grasp_site")
-    spec.attach(gripper_spec, prefix="gripper/", site=grasp_site)
+    # Add a canonical grasp_site at the gripper's base_mount origin
+    # (the palm), oriented to match TSR conventions.
+    #
+    # The TSR parallel-jaw hand class assumes the ee_site frame has:
+    #   z = approach direction (into object)
+    #   y = finger-opening axis
+    #   x = palm normal
+    #
+    # The menagerie 2F-85 has the FINGERS OPENING ALONG X (not y) of
+    # its base_mount — the drivers/couplers are offset along x, so
+    # pads sit on either side in x. A grasp_site with identity
+    # rotation would have TSR-expected-y ≠ actual-opening-axis.
+    #
+    # To align TSR's y to the gripper's opening axis, we rotate the
+    # site by -90° about z. That maps (site x, site y, site z) to
+    # (-base_mount y, +base_mount x, +base_mount z) — so TSR's
+    # y-opening matches the gripper's x-opening. Matches the quat
+    # that's baked into geodude_assets's 2F-140 grasp_site.
+    gripper_base = gripper_spec.body("base_mount")
+    grasp_site_spec = gripper_base.add_site()
+    grasp_site_spec.name = "grasp_site"
+    grasp_site_spec.pos = [0.0, 0.0, 0.0]
+    grasp_site_spec.quat = [0.7071, 0.0, 0.0, -0.7071]
+
+    link7_ee = spec.site("link7_ee")
+    spec.attach(gripper_spec, prefix="gripper/", site=link7_ee)
 
     # Skip finger↔finger self-collision — real Robotiq has a mechanical
     # hard stop before the fingertips touch; the menagerie model lets
@@ -101,18 +128,31 @@ def build_iiwa14_robot(scene: dict) -> "IIWA14DemoRobot":
         env = Environment.from_model(spec.compile())
 
     # 5. Arm + gripper + grasp manager.
-    # The gripper's actuator is prefixed 'gripper/'. RobotiqGripper
-    # appends 'fingers_actuator' and the body suffixes.
-    gm = GraspManager(env.model, env.data)
-    gripper = RobotiqGripper(env.model, env.data, "iiwa14", prefix="gripper/", grasp_manager=gm)
+    # RobotiqGripper appends 'fingers_actuator' and the standard body
+    # suffixes under the "gripper/" prefix. We pass the 2F-85-specific
+    # kinematic trajectory (recorded via scripts/record_gripper_trajectory.py)
+    # and hand_type so grasp sources load Robotiq2F85 from tsr.hands.
+    from mj_manipulator.grippers._robotiq_2f85_trajectory import _2F85_TRAJECTORY
 
-    # The arm's ee_site is 'grasp_site' — the site we added on link7.
-    # The gripper's fingertip is the 2F-85's 'pinch' site, accessible
-    # as 'gripper/pinch' after the attach. For grasp planning, we want
-    # the TSRs to target the fingertip frame; use gripper/pinch.
+    gm = GraspManager(env.model, env.data)
+    gripper = RobotiqGripper(
+        env.model,
+        env.data,
+        "iiwa14",
+        prefix="gripper/",
+        grasp_manager=gm,
+        trajectory=_2F85_TRAJECTORY,
+        hand_type_override="robotiq_2f85",
+    )
+
+    # ee_site is the 'grasp_site' we added on the gripper's base_mount
+    # (the palm). The TSR Robotiq2F85 class adds its FINGER_LENGTH
+    # (129 mm) to reach the fingertip pad. Using gripper/pinch here
+    # would double-count that offset and make the arm stop short of
+    # the target.
     arm = create_iiwa14_arm(
         env,
-        ee_site="gripper/pinch",
+        ee_site="gripper/grasp_site",
         gripper=gripper,
         grasp_manager=gm,
     )
@@ -132,14 +172,7 @@ def build_iiwa14_robot(scene: dict) -> "IIWA14DemoRobot":
 
 
 def _add_iiwa14_worktop(spec: mujoco.MjSpec) -> None:
-    """Add a 60×60×5 cm plate with a named ``worktop`` site on top.
-
-    Positioned slightly further from the iiwa base than the Franka
-    worktop, since the iiwa 14 has a longer reach (~820 mm vs ~855 mm
-    for Franka, similar but slightly offset base height). The exact
-    position is a bit of a tuning knob — the scenario system will
-    error politely if objects don't fit within arm reach.
-    """
+    """Add a 60×60×5 cm plate with a named ``worktop`` site on top."""
     plate = spec.worldbody.add_body()
     plate.name = "plate"
     plate.pos = [0.6, 0.0, 0.025]
