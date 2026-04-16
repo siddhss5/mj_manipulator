@@ -23,6 +23,7 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 import mujoco
@@ -31,6 +32,8 @@ import numpy as np
 from mj_manipulator.arm import Arm
 from mj_manipulator.arms.eaik_solver import MuJoCoEAIKSolver
 from mj_manipulator.config import ArmConfig, KinematicLimits
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from mj_environment import Environment
@@ -74,19 +77,15 @@ def fix_franka_grip_force(model: mujoco.MjModel, target_force: float = 70.0) -> 
     perturbation that closes the fingers slightly *reduces* grip, so
     the slip feeds on itself until the object falls.
 
-    Two menagerie defaults also fight the target_force setting:
-
-    1. ``forcerange`` is ``[-100, 100]`` N → any bias beyond that is
-       clamped, so the previous position-spring "140N" fix actually
-       delivered 100N max.
-    2. ``biasprm[1]`` couples force to finger position.
-
     This helper rewrites the actuator so that:
 
     - ``ctrl = 0``   → net force = ``-target_force``  (closing, constant)
     - ``ctrl = 255`` → net force = ``+target_force``  (opening, constant)
     - Force is independent of gap (``biasprm[1]`` set to 0)
-    - ``forcerange`` is expanded to fit, so nothing gets clamped
+
+    The menagerie's default ``forcerange`` of ``[-100, 100]`` N is
+    left untouched; target_force should stay within it (70 N default
+    leaves plenty of headroom).
 
     Args:
         model: Compiled MjModel (modified in place).
@@ -99,6 +98,17 @@ def fix_franka_grip_force(model: mujoco.MjModel, target_force: float = 70.0) -> 
     aid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_ACTUATOR, "actuator8")
     if aid < 0:
         return
+
+    limit = float(model.actuator_forcerange[aid, 1])
+    if target_force > limit:
+        logger.warning(
+            "fix_franka_grip_force: target_force=%.1fN exceeds the "
+            "menagerie actuator's forcerange (%.1fN). The actuator will "
+            "clamp to %.1fN at full close.",
+            target_force,
+            limit,
+            limit,
+        )
 
     # Affine actuator force model:
     #   force = gain[0] * ctrl + bias[0] + bias[1] * length + bias[2] * vel
@@ -122,13 +132,6 @@ def fix_franka_grip_force(model: mujoco.MjModel, target_force: float = 70.0) -> 
     model.actuator_biasprm[aid, 1] = 0.0  # kill position coupling
     model.actuator_biasprm[aid, 2] = old_bias2 * damping_scale
     model.actuator_gainprm[aid, 0] = new_gain
-
-    # Expand force range so the clamp doesn't strangle the bias. Add a
-    # bit of headroom for the damper term during fast finger motion.
-    headroom = 1.25
-    limit = target_force * headroom
-    model.actuator_forcerange[aid, 0] = -limit
-    model.actuator_forcerange[aid, 1] = +limit
 
 
 def add_franka_ee_site(
