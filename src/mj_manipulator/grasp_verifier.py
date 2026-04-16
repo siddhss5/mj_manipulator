@@ -413,7 +413,17 @@ class GraspVerifier:
         )
 
     def _transition_to_lost(self, facts: VerifierFacts) -> None:
-        """Move HOLDING → LOST and log what tripped it."""
+        """Move HOLDING → LOST, clean up the sim weld, and log.
+
+        Detaching the weld is important: otherwise the grasp_manager
+        still thinks the arm is holding the object, the collision
+        checker treats the (now-detached-in-physics) object as part
+        of the arm, and subsequent plans report "start in collision"
+        referencing a stale attachment. On hardware this cleanup is
+        trivial (no sim weld to detach); here it mirrors what
+        :meth:`SimArmController.release` does, minus the gripper open
+        (the gripper is already closed — nothing to open).
+        """
         reasons = []
         if (
             facts.empty_at_fully_closed
@@ -430,4 +440,16 @@ class GraspVerifier:
                 reasons.append(f"{name} dropped from {base:.3f} → {val:.3f} (threshold {threshold:.3f})")
         reason_str = "; ".join(reasons) if reasons else "unknown"
         logger.warning("GraspVerifier: LOST %s (reason: %s)", self._object_name, reason_str)
+
+        # Clean up sim bookkeeping so subsequent plans don't see a
+        # stale weld. Harmless when grasp_manager is None (hardware).
+        gm = getattr(self._gripper, "_grasp_manager", None)
+        if gm is not None and self._object_name is not None:
+            try:
+                gm.mark_released(self._object_name)
+                gm.detach_object(self._object_name)
+            except Exception as e:
+                # Bookkeeping cleanup is best-effort — log but don't crash.
+                logger.debug("GraspVerifier: cleanup failed for %s: %s", self._object_name, e)
+
         self._state = GraspState.LOST

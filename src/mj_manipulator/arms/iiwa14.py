@@ -55,10 +55,19 @@ IIWA14_JOINT_NAMES = [f"joint{i}" for i in range(1, 8)]
 # for the demo so the arm doesn't start at a stretched-out singularity.
 IIWA14_HOME = np.array([0.0, 0.3, 0.0, -1.5, 0.0, 1.2, 0.0])
 
-# KUKA iiwa 14 datasheet joint velocity limits (rad/s); halved for planning.
-# Source: KUKA LBR iiwa 14 R820 datasheet — max axis velocities.
-IIWA14_VELOCITY_LIMITS = np.array([1.71, 1.71, 1.74, 2.27, 2.44, 3.14, 3.14]) * 0.5
-IIWA14_ACCELERATION_LIMITS = np.array([10.0, 10.0, 10.0, 10.0, 15.0, 15.0, 15.0]) * 0.5
+# KUKA iiwa 14 R820 max axis velocities (rad/s); halved for planning.
+# Source: KUKA LBR iiwa 14 R820 datasheet (J1–J7 in °/s):
+#   85, 85, 100, 75, 130, 135, 135
+# https://assets.robots.com/robots/KUKA/Collaborative/KUKA_LBR_IIWA_14_R820_Datasheet.pdf
+IIWA14_VELOCITY_LIMITS = np.array([1.484, 1.484, 1.745, 1.309, 2.269, 2.356, 2.356]) * 0.5
+
+# KUKA doesn't publish acceleration limits. We derive them from a
+# "reach max velocity in 100 ms" rule of thumb (typical high-performance
+# cobot spec). α = v_max / 0.1 s. Halved for planning, matching the
+# velocity convention. The resulting numbers are within the same range
+# as Franka's libfranka-published limits [15, 7.5, 10, 12.5, 15, 20, 20] —
+# reassuring given iiwa 14 and Franka are similar-mass 7-DOF cobots.
+IIWA14_ACCELERATION_LIMITS = np.array([14.8, 14.8, 17.4, 13.1, 22.7, 23.6, 23.6]) * 0.5
 
 # Which joint to lock for 7-DOF EAIK decomposition. Discovered via
 # ``find_locked_joint_index(H, P)`` at ``q = zeros`` — see

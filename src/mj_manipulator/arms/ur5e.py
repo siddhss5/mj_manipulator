@@ -50,9 +50,16 @@ UR5E_ROBOTIQ_EE_SITE = "gripper/grasp_site"
 
 UR5E_HOME = np.array([-1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0.0])
 
-# From UR5e datasheet, halved for conservative planning
+# UR5e max axis velocities; halved for conservative planning.
+# Source: Universal Robots UR5e tech specs — base/shoulder/elbow 180°/s,
+# wrist 1/2/3 360°/s.
+# https://www.universal-robots.com/manuals/EN/HTML/SW5_19/Content/prod-usr-man/complianceUR5e/H_g5_sections/appendix_g5/tech_spec_sheet.htm
 UR5E_VELOCITY_LIMITS = np.array([3.14, 3.14, 3.14, 6.28, 6.28, 6.28]) * 0.5
-UR5E_ACCELERATION_LIMITS = np.array([2.5, 2.5, 2.5, 5.0, 5.0, 5.0]) * 0.5
+
+# UR's recommended joint acceleration is ~5 rad/s² (300°/s² URScript default).
+# Halved for planning. The UR5e can push higher (up to ~6 rad/s² per some
+# research) but the URScript default is the operational sweet spot.
+UR5E_ACCELERATION_LIMITS = np.array([5.0, 5.0, 5.0, 5.0, 5.0, 5.0]) * 0.5
 
 
 # ---------------------------------------------------------------------------

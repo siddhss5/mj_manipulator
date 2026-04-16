@@ -49,7 +49,12 @@ FRANKA_JOINT_NAMES = [f"joint{i}" for i in range(1, 8)]
 
 FRANKA_HOME = np.array([0.0, 0.0, 0.0, -1.57079, 0.0, 1.57079, -0.7853])
 
-# From Franka documentation, halved for conservative planning
+# From libfranka's operational limits; halved for conservative planning.
+# These are the stricter runtime limits the controller enforces (below
+# the datasheet peak of 150 °/s = 2.618 rad/s for J1-J4).
+# Source: https://github.com/frankaemika/libfranka include/franka/rate_limiting.h
+#   kMaxJointVelocity     = {2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61}  rad/s
+#   kMaxJointAcceleration = {15.0, 7.5, 10.0, 12.5, 15.0, 20.0, 20.0}       rad/s²
 FRANKA_VELOCITY_LIMITS = np.array([2.175, 2.175, 2.175, 2.175, 2.61, 2.61, 2.61]) * 0.5
 FRANKA_ACCELERATION_LIMITS = np.array([15.0, 7.5, 10.0, 12.5, 15.0, 20.0, 20.0]) * 0.5
 
