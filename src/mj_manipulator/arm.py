@@ -554,6 +554,8 @@ class Arm:
     def create_planner(
         self,
         config: CBiRRTConfig | None = None,
+        *,
+        planning_env=None,
     ) -> CBiRRT:
         """Create a thread-safe planner with isolated state.
 
@@ -563,6 +565,10 @@ class Arm:
         Args:
             config: Planner configuration. Defaults built from
                     self.config.planning_defaults.
+            planning_env: Pre-forked environment to plan in. When provided,
+                used directly instead of forking from self.env. This allows
+                the caller to set up custom state (e.g. a different base
+                height) without mutating live state.
 
         Returns:
             Configured CBiRRT planner ready to call .plan().
@@ -577,8 +583,9 @@ class Arm:
                 smoothing_iterations=defaults.smoothing_iterations,
             )
 
-        # Fork environment for isolated planning state
-        planning_env = self.env.fork()
+        # Use provided env or fork for isolated planning state
+        if planning_env is None:
+            planning_env = self.env.fork()
         model = planning_env.model
         data = planning_env.data
 
