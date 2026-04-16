@@ -41,6 +41,7 @@ def safe_retract(
     max_distance: float,
     *,
     segment_length: float = 0.005,
+    max_branch_jump: float | None = None,
     stop_condition: Callable[[], bool] | None = None,
 ) -> float:
     """Move the EE along ``twist`` up to ``max_distance``.
@@ -60,6 +61,17 @@ def safe_retract(
             part is used; angular components must be zero.
         max_distance: Maximum distance to travel along the twist (meters).
         segment_length: Cartesian spacing between IK waypoints (meters).
+        max_branch_jump: Maximum per-waypoint joint-space step (radians,
+            vector norm across all joints). Caps the greedy-nearest IK
+            branch selection so a small Cartesian step cannot produce a
+            huge joint motion (lefty↔righty elbow flips). Under
+            ``partial_ok``, an offending step truncates the retract
+            instead of raising. ``None`` (default) disables the check.
+            Reasonable opt-in values are 0.3-1.0 rad for typical 5-10 mm
+            segment spacing; tune for the robot. NOTE: tight values can
+            expose upstream IK/FK discrepancies (see the arm's IK solver
+            — if IK at the current pose does not return the current
+            config, the first waypoint will always look like a jump).
         stop_condition: Optional early-termination predicate (e-stop,
             ownership abort). Checked each control cycle.
 
@@ -91,7 +103,12 @@ def safe_retract(
         segment_length=segment_length,
     )
     try:
-        trajectory = plan_cartesian_path(arm, waypoints, partial_ok=True)
+        trajectory = plan_cartesian_path(
+            arm,
+            waypoints,
+            partial_ok=True,
+            max_branch_jump=max_branch_jump,
+        )
     except ValueError as exc:
         logger.warning("safe_retract: no feasible prefix (%s); not moving", exc)
         return 0.0
