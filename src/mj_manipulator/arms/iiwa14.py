@@ -33,7 +33,6 @@ import mujoco
 import numpy as np
 
 from mj_manipulator.arm import Arm
-from mj_manipulator.arms.eaik_solver import MuJoCoEAIKSolver
 from mj_manipulator.config import ArmConfig, KinematicLimits
 
 logger = logging.getLogger(__name__)
@@ -139,7 +138,7 @@ def create_iiwa14_arm(
     env: Environment,
     *,
     ee_site: str = "grasp_site",
-    with_ik: bool = True,
+    with_ik="auto",
     tcp_offset: np.ndarray | None = None,
     gripper: Gripper | None = None,
     grasp_manager: GraspManager | None = None,
@@ -151,7 +150,9 @@ def create_iiwa14_arm(
         ee_site: Name of the end-effector site. Use the default when
             the arm has a bare ``grasp_site`` on link7; override when
             a gripper has been attached and brings its own grasp site.
-        with_ik: If True, configure the EAIK analytical IK solver.
+        with_ik: IK solver mode — ``"auto"`` (EAIK, mink fallback),
+            ``"eaik"``, ``"mink"``, ``"none"``, or bool for backward
+            compat (``True`` → ``"auto"``).
         tcp_offset: Optional 4×4 transform from ``ee_site`` to the TCP.
         gripper: Optional gripper implementation.
         grasp_manager: Optional grasp state tracker.
@@ -159,6 +160,8 @@ def create_iiwa14_arm(
     Returns:
         Arm ready for planning, execution, and state queries.
     """
+    from mj_manipulator.arms._ik_factory import resolve_ik_solver
+
     config = ArmConfig(
         name="iiwa14",
         entity_type="arm",
@@ -171,23 +174,11 @@ def create_iiwa14_arm(
         tcp_offset=tcp_offset,
     )
 
-    if not with_ik:
-        return Arm(env, config, gripper=gripper, grasp_manager=grasp_manager)
-
     arm = Arm(env, config)
-    joint_limits = arm.get_joint_limits()
-    first_joint_body = env.model.jnt_bodyid[arm.joint_ids[0]]
-    base_body_id = env.model.body_parentid[first_joint_body]
-
-    ik_solver = MuJoCoEAIKSolver(
-        model=env.model,
-        data=env.data,
-        joint_ids=list(arm.joint_ids),
-        joint_qpos_indices=arm.joint_qpos_indices,
-        ee_site_id=arm.ee_site_id,
-        base_body_id=base_body_id,
-        joint_limits=joint_limits,
+    ik_solver = resolve_ik_solver(
+        arm,
+        ee_frame_name=ee_site,
+        with_ik=with_ik,
         fixed_joint_index=_IIWA14_LOCKED_JOINT_INDEX,
     )
-
     return Arm(env, config, ik_solver=ik_solver, gripper=gripper, grasp_manager=grasp_manager)

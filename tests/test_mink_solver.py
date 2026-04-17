@@ -14,11 +14,10 @@ import pytest
 
 mink = pytest.importorskip("mink")
 
-from mj_environment import Environment
+from mj_environment import Environment  # noqa: E402
 
-from mj_manipulator.arms.mink_solver import MinkIKSolver, make_mink_solver
-from mj_manipulator.protocols import IKSolver
-
+from mj_manipulator.arms.mink_solver import make_mink_solver  # noqa: E402
+from mj_manipulator.protocols import IKSolver  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fixtures: build each arm once per test class

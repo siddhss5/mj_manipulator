@@ -30,7 +30,6 @@ import mujoco
 import numpy as np
 
 from mj_manipulator.arm import Arm
-from mj_manipulator.arms.eaik_solver import MuJoCoEAIKSolver
 from mj_manipulator.config import ArmConfig, KinematicLimits
 
 logger = logging.getLogger(__name__)
@@ -328,7 +327,7 @@ def create_franka_arm(
     env: Environment,
     *,
     ee_site: str = "grasp_site",
-    with_ik: bool = True,
+    with_ik="auto",
     n_discretizations: int = 16,
     tcp_offset: np.ndarray | None = None,
     gripper: Gripper | None = None,
@@ -339,8 +338,10 @@ def create_franka_arm(
     Args:
         env: MuJoCo environment containing a Franka model with an EE site.
         ee_site: Name of the end-effector site in the model.
-        with_ik: If True, configure EAIK IK solver with joint-5 discretization.
-        n_discretizations: Number of joint-5 values to sample for IK.
+        with_ik: IK solver mode — ``"auto"`` (EAIK, mink fallback),
+            ``"eaik"``, ``"mink"``, ``"none"``, or bool for backward
+            compat (``True`` → ``"auto"``).
+        n_discretizations: Number of joint-5 values to sample for EAIK.
         tcp_offset: Optional 4x4 transform from ee_site to tool center point.
         gripper: Optional gripper implementation (e.g., FrankaGripper).
         grasp_manager: Optional grasp state tracker.
@@ -348,6 +349,8 @@ def create_franka_arm(
     Returns:
         Arm instance with IK solver, planning, and state queries ready to use.
     """
+    from mj_manipulator.arms._ik_factory import resolve_ik_solver
+
     config = ArmConfig(
         name="franka",
         entity_type="arm",
@@ -360,28 +363,12 @@ def create_franka_arm(
         tcp_offset=tcp_offset,
     )
 
-    ik_solver = None
-    if with_ik:
-        # Create Arm first to resolve joint indices
-        arm = Arm(env, config)
-        joint_limits = arm.get_joint_limits()
-
-        # Base body = parent of first joint's body
-        first_joint_body = env.model.jnt_bodyid[arm.joint_ids[0]]
-        base_body_id = env.model.body_parentid[first_joint_body]
-
-        ik_solver = MuJoCoEAIKSolver(
-            model=env.model,
-            data=env.data,
-            joint_ids=list(arm.joint_ids),
-            joint_qpos_indices=arm.joint_qpos_indices,
-            ee_site_id=arm.ee_site_id,
-            base_body_id=base_body_id,
-            joint_limits=joint_limits,
-            fixed_joint_index=_FRANKA_LOCKED_JOINT_INDEX,
-            n_discretizations=n_discretizations,
-        )
-
-        return Arm(env, config, ik_solver=ik_solver, gripper=gripper, grasp_manager=grasp_manager)
-
-    return Arm(env, config, gripper=gripper, grasp_manager=grasp_manager)
+    arm = Arm(env, config)
+    ik_solver = resolve_ik_solver(
+        arm,
+        ee_frame_name=ee_site,
+        with_ik=with_ik,
+        fixed_joint_index=_FRANKA_LOCKED_JOINT_INDEX,
+        n_discretizations=n_discretizations,
+    )
+    return Arm(env, config, ik_solver=ik_solver, gripper=gripper, grasp_manager=grasp_manager)
