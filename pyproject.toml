@@ -41,6 +41,9 @@ dev = [
     "pytest",
     "ruff",
 ]
+mink = [
+    "mink>=1.1.0",
+]
 
 [build-system]
 requires = ["hatchling"]
