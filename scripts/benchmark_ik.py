@@ -282,24 +282,22 @@ def benchmark_planning(
 
         # Swap IK solver temporarily
         counting = _CountingIKSolver(solver)
-        original_solver = arm._ik_solver
-        arm._ik_solver = counting
+        original_solver = arm.ik_solver
+        arm.ik_solver = counting
 
         t0 = time.perf_counter()
         result = arm.plan_to_pose(target_pose, timeout=5.0)
         elapsed = time.perf_counter() - t0
 
-        arm._ik_solver = original_solver
+        arm.ik_solver = original_solver
 
         times.append(elapsed)
         ik_counts.append(counting.call_count)
 
         if result is not None:
             successes += 1
-            length = sum(
-                float(np.linalg.norm(result.positions[i + 1] - result.positions[i]))
-                for i in range(len(result.positions) - 1)
-            )
+            # result is list[np.ndarray] — a path of joint configs
+            length = sum(float(np.linalg.norm(result[i + 1] - result[i])) for i in range(len(result) - 1))
             path_lengths.append(length)
 
     return PlanBenchResult(
