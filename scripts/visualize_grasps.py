@@ -161,15 +161,17 @@ GRIPPERS: dict[str, GripperSpec] = {
         grasp_site_name="grasp_site",
     ),
     "franka": GripperSpec(
-        # Franka hand.xml has no site. Palm is at [0,0,0.0584] relative
-        # to the hand body (finger-joint origin). Hand frame already has
-        # z=approach, y=opening, so identity rotation.
+        # Franka hand.xml has no site. Palm = forward edge of the hand
+        # body (the metal collar) = hand + [0, 0, 0.0753] = finger-joint
+        # origin + 17 mm forward. Hand frame already has z=approach,
+        # y=opening, so identity rotation. Must match add_franka_ee_site
+        # in arms/franka.py exactly.
         xml_path_resolver=_franka_hand_xml,
         hand_type="franka",
         add_grasp_site=True,
         grasp_site_name="grasp_site",
         grasp_site_base_body="hand",
-        grasp_site_pos=(0.0, 0.0, 0.0584),
+        grasp_site_pos=(0.0, 0.0, 0.0753),  # = FrankaHand.PALM_OFFSET_FROM_HAND
         grasp_site_quat=(1.0, 0.0, 0.0, 0.0),
         # Open the fingers for visualization (default qpos leaves them
         # closed, which is unhelpful for eyeballing aperture).

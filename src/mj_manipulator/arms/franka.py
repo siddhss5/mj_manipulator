@@ -151,24 +151,34 @@ def add_franka_ee_site(
     """Add a grasp_site to the Franka hand body in an MjSpec.
 
     The site is placed at the canonical TSR EE frame (z=approach toward
-    fingertips, y=finger-opening). The Franka hand frame already has this
-    orientation, so no rotation is needed — only a position offset.
+    fingertips, y=finger-opening). The Franka hand frame already has
+    this orientation, so no rotation is needed — only a position offset.
 
-    The default position [0, 0, 0.0584] is the finger-joint origin (palm),
-    matching the TSR convention used by FrankaHand: EE at the palm so that
-    finger_length (44.5 mm) gives the correct fingertip standoff.
+    The default position is ``[0, 0, FrankaHand.PALM_OFFSET_FROM_HAND]``
+    = ``[0, 0, 0.0753]`` — the forward edge of the ``hand`` body's
+    collision mesh (the metal collar around the finger mounts). That
+    matches the TSR convention: EE at the palm where the finger
+    mechanism attaches, nothing except fingers forward of it.
 
-    Call this before compiling the spec if the Franka model doesn't have
-    an EE site (the menagerie model doesn't include one).
+    Before this was aligned with the 2F-85 convention (#129), the
+    default was ``[0, 0, 0.0584]`` (the finger-joint origin), which
+    buried the grasp_site inside the 17 mm-deep collar and caused
+    deep-grasp TSR templates to drive the collar into the object. See
+    ``docs/grippers.md`` §1 for the palm–housing story.
+
+    Call this before compiling the spec if the Franka model doesn't
+    have an EE site (the menagerie model doesn't include one).
 
     Args:
         spec: MjSpec loaded from a Franka scene XML.
-        site_name: Name for the new site (default: "grasp_site").
-        pos: Position relative to hand body. Defaults to [0, 0, 0.0584]
-             (finger-joint origin = palm, 44.5 mm from fingertip contact).
+        site_name: Name for the new site (default: ``"grasp_site"``).
+        pos: Position relative to hand body. Defaults to the new
+            palm convention ``[0, 0, 0.0753]`` (collar forward edge).
     """
     if pos is None:
-        pos = [0.0, 0.0, 0.0584]
+        from tsr.hands import FrankaHand
+
+        pos = [0.0, 0.0, FrankaHand.PALM_OFFSET_FROM_HAND]
     hand = spec.worldbody.find_child("hand")
     site = hand.add_site()
     site.name = site_name
