@@ -123,20 +123,28 @@ def _2f85_xml() -> Path:
     return find_menagerie() / "robotiq_2f85" / "2f85.xml"
 
 
-def _2f140_xml() -> Path:
-    # geodude_assets 2F-140 is the only one we have; no menagerie equivalent.
-    import importlib
-
-    ga = importlib.import_module("geodude_assets")
-    return Path(ga.__file__).parent / "models" / "robotiq_2f140" / "2f140.xml"
-
-
 def _franka_hand_xml() -> Path:
     from mj_manipulator.menagerie import find_menagerie
 
     return find_menagerie() / "franka_emika_panda" / "hand.xml"
 
 
+# Registry of gripper specs the visualizer / validator can target.
+#
+# This is a plain mutable dict so downstream packages can register
+# their own grippers without forking this file:
+#
+#     import visualize_grasps as vg
+#     vg.GRIPPERS["my_gripper"] = vg.GripperSpec(
+#         xml_path_resolver=lambda: Path("/path/to/my_gripper.xml"),
+#         hand_type="my_gripper",
+#         ...
+#     )
+#
+# Bundled entries only reference packages mj_manipulator already
+# depends on (mujoco_menagerie). Grippers that live in other
+# workspace packages (e.g. the geodude_assets 2F-140) are registered
+# by those packages — see geodude/scripts/validate_2f140.py.
 GRIPPERS: dict[str, GripperSpec] = {
     "robotiq_2f85": GripperSpec(
         xml_path_resolver=_2f85_xml,
@@ -151,14 +159,6 @@ GRIPPERS: dict[str, GripperSpec] = {
         # iiwa14_setup.py's grasp_site definition exactly.
         grasp_site_pos=(0.0, 0.0, 0.094),  # = Robotiq2F85.PALM_OFFSET_FROM_BASE_MOUNT
         grasp_site_quat=(0.7071, 0.0, 0.0, -0.7071),
-    ),
-    "robotiq_2f140": GripperSpec(
-        # grasp_site is already baked into the geodude_assets 2f140.xml
-        # at pos=[0,0,0.1] with the same -90° z rotation.
-        xml_path_resolver=_2f140_xml,
-        hand_type="robotiq_2f140",
-        add_grasp_site=False,
-        grasp_site_name="grasp_site",
     ),
     "franka": GripperSpec(
         # Franka hand.xml has no site. Palm = forward edge of the hand
