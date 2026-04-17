@@ -366,7 +366,6 @@ def create_franka_arm(
     arm = Arm(env, config)
     ik_solver = resolve_ik_solver(
         arm,
-        ee_frame_name=ee_site,
         with_ik=with_ik,
         fixed_joint_index=_FRANKA_LOCKED_JOINT_INDEX,
         n_discretizations=n_discretizations,

@@ -25,7 +25,6 @@ IKMode = Literal["auto", "eaik", "mink", "none"] | bool
 
 def resolve_ik_solver(
     arm: "Arm",
-    ee_frame_name: str,
     with_ik: IKMode,
     *,
     fixed_joint_index: int | None = None,
@@ -33,9 +32,11 @@ def resolve_ik_solver(
 ) -> "IKSolver | None":
     """Build the right IK solver for an arm based on ``with_ik``.
 
+    The EE site name (for mink's FrameTask) is resolved automatically
+    from ``arm.ee_site_id`` — no configuration needed.
+
     Args:
         arm: A bare Arm (no IK yet) — used to read joint indices/limits.
-        ee_frame_name: EE site name for mink (ignored for EAIK).
         with_ik: ``"auto"`` (default), ``"eaik"``, ``"mink"``, ``"none"``,
             or bool for backward compat (``True`` → ``"auto"``).
         fixed_joint_index: For EAIK on 7-DOF arms, which joint to lock.
@@ -57,7 +58,7 @@ def resolve_ik_solver(
         return _make_eaik(arm, fixed_joint_index, n_discretizations)
 
     if with_ik == "mink":
-        return _make_mink(arm, ee_frame_name)
+        return _make_mink(arm)
 
     # "auto": try EAIK, fall back to mink.
     eaik = _try_eaik(arm, fixed_joint_index, n_discretizations)
@@ -68,15 +69,7 @@ def resolve_ik_solver(
         "EAIK has no known decomposition for '%s'; falling back to mink numerical IK.",
         arm.config.name,
     )
-    mink = _try_mink(arm, ee_frame_name)
-    if mink is not None:
-        return mink
-
-    logger.warning(
-        "Neither EAIK nor mink available for '%s'. Install mink with: uv add 'mj-manipulator[mink]'",
-        arm.config.name,
-    )
-    return None
+    return _make_mink(arm)
 
 
 # ------------------------------------------------------------------
@@ -129,15 +122,7 @@ def _try_eaik(arm, fixed_joint_index, n_discretizations):
     return solver
 
 
-def _make_mink(arm, ee_frame_name):
+def _make_mink(arm):
     from mj_manipulator.arms.mink_solver import make_mink_solver
 
-    return make_mink_solver(arm, ee_frame_name=ee_frame_name)
-
-
-def _try_mink(arm, ee_frame_name):
-    """Try mink — return solver if mink is installed, else None."""
-    try:
-        return _make_mink(arm, ee_frame_name)
-    except ImportError:
-        return None
+    return make_mink_solver(arm)

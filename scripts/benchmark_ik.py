@@ -388,7 +388,7 @@ def main() -> int:
         # Mink
         from mj_manipulator.arms.mink_solver import make_mink_solver
 
-        mink_solver = make_mink_solver(arm_bare, ee_frame_name=ee_frame)
+        mink_solver = make_mink_solver(arm_bare)
         print("  Running mink...", flush=True)
         mink_result = benchmark_ik(arm_name, "mink", mink_solver, arm_bare, poses, home)
         report.ik_results.append(mink_result)
@@ -410,7 +410,7 @@ def main() -> int:
 
             from mj_manipulator.arms.mink_solver import make_mink_solver
 
-            mink_solver = make_mink_solver(arm_bare, ee_frame_name=ee_frame)
+            mink_solver = make_mink_solver(arm_bare)
 
             print("  Planning with EAIK...", flush=True)
             eaik_plan = benchmark_planning(

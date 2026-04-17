@@ -137,5 +137,5 @@ def create_ur5e_arm(
     )
 
     arm = Arm(env, config)
-    ik_solver = resolve_ik_solver(arm, ee_frame_name=ee_site, with_ik=with_ik)
+    ik_solver = resolve_ik_solver(arm, with_ik=with_ik)
     return Arm(env, config, ik_solver=ik_solver, gripper=gripper, grasp_manager=grasp_manager)

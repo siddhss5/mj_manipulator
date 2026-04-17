@@ -15,13 +15,12 @@ Usage::
 
     from mj_manipulator.arms.mink_solver import MinkIKSolver, make_mink_solver
 
-    # From an Arm instance (recommended):
-    solver = make_mink_solver(arm, ee_frame_name="grasp_site")
+    # From an Arm instance (recommended — zero config, reads ee_site automatically):
+    solver = make_mink_solver(arm)
 
-    # Direct construction:
+    # Direct construction (ee_frame_name resolved from ee_site_id if omitted):
     solver = MinkIKSolver(model, data, joint_ids, joint_qpos_indices,
-                          ee_site_id, base_body_id, joint_limits,
-                          ee_frame_name="grasp_site")
+                          ee_site_id, base_body_id, joint_limits)
 
     solutions = solver.solve_valid(target_pose_4x4)
 """
@@ -72,7 +71,7 @@ class MinkIKSolver:
         base_body_id: int,
         joint_limits: tuple[np.ndarray, np.ndarray] | None = None,
         *,
-        ee_frame_name: str,
+        ee_frame_name: str | None = None,
         n_restarts: int = 8,
         max_iters: int = 100,
         convergence_thresh: float = 1e-3,
@@ -93,7 +92,8 @@ class MinkIKSolver:
             ee_site_id: Site ID for end-effector.
             base_body_id: Body ID of the arm's base (for frame conversion).
             joint_limits: ``(lower, upper)`` arrays, or None for no filtering.
-            ee_frame_name: Name of the EE site in the model (for mink FrameTask).
+            ee_frame_name: Name of the EE site (for mink FrameTask). If None,
+                resolved automatically from ``ee_site_id`` via the model.
             n_restarts: Number of random seeds per ``solve()`` call.
             max_iters: Max convergence iterations per restart.
             convergence_thresh: Position error threshold (meters).
@@ -105,12 +105,13 @@ class MinkIKSolver:
             damping: QP damping for numerical stability.
             solver: QP solver backend (default: "daqp").
         """
-        try:
-            import mink as _mink
-        except ImportError:
-            raise ImportError(
-                "mink is required for MinkIKSolver but is not installed. Install it with: uv add 'mj-manipulator[mink]'"
-            ) from None
+        import mink as _mink
+
+        # Resolve EE site name from ID if not provided.
+        if ee_frame_name is None:
+            ee_frame_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_SITE, ee_site_id)
+            if ee_frame_name is None:
+                raise ValueError(f"ee_site_id={ee_site_id} has no name in the model; pass ee_frame_name explicitly.")
 
         self._mink = _mink
         self._joint_ids = list(joint_ids)
@@ -323,17 +324,16 @@ class MinkIKSolver:
 
 def make_mink_solver(
     arm: Arm,
-    ee_frame_name: str,
     **kwargs,
 ) -> MinkIKSolver:
     """Create a MinkIKSolver from an Arm instance.
 
     Convenience factory that extracts joint IDs, limits, site ID, and
-    base body from the Arm — same boilerplate the EAIK factories do.
+    base body from the Arm. The EE site name is resolved automatically
+    from the arm's ``ee_site_id`` — no configuration needed.
 
     Args:
         arm: An Arm instance (created without IK, just for index resolution).
-        ee_frame_name: Name of the EE site in the model (for mink FrameTask).
         **kwargs: Forwarded to :class:`MinkIKSolver`.
 
     Returns:
@@ -351,6 +351,5 @@ def make_mink_solver(
         ee_site_id=arm.ee_site_id,
         base_body_id=base_body_id,
         joint_limits=joint_limits,
-        ee_frame_name=ee_frame_name,
         **kwargs,
     )
