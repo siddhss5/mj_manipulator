@@ -56,7 +56,7 @@
 
 - `safe_retract` no longer uses `CartesianController.move`; it's now IK-based via `plan_cartesian_path`. Signature unchanged but internal behaviour differs. (#121)
 
-- `detect_grasped_object` (bilateral contact heuristic) is deprecated in favour of `GraspVerifier`. Still present but logged as a warning. (#80, #83)
+- `detect_grasped_object` (bilateral contact heuristic) removed and replaced with `find_contacted_object` (simple contact-count, no finger groups). `GraspVerifier` handles all post-grasp validation. (#80, #83)
 
 - Teleop position step now derived from `arm.config.kinematic_limits.velocity * dt`, no longer a separate `max_joint_step` constant. (#105)
 
@@ -84,4 +84,4 @@
 
 - `CartesianController` in physics mode works correctly now (#84 fix) but accumulates drift if the physical state diverges far from `_q_ref` (e.g., external collision). Call `reset()` before changing direction.
 - Franka hand aperture is tight for 66 mm cans (~5 mm clearance per side). (#132)
-- Bilateral contact fallback (`detect_grasped_object`) is deprecated but not yet removed. (#80, #83)
+- Nameless grasp path (`find_contacted_object`) is sim-only; on hardware, perception identifies the object after close.

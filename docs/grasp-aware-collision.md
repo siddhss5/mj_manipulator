@@ -149,7 +149,7 @@ This allows contacts with fingers, pads, and other gripper parts while still fla
 
 The BT and primitives path always passes an explicit object name to `ctx.arm().grasp("can_0")` — the caller knows what they're grasping. After close, the `GraspVerifier` confirms the hold using `LoadSignal` readings (gripper position, wrist F/T, joint torques). This works identically on sim and hardware.
 
-For the nameless interactive path (REPL `arm.grasp()` with no argument, or the teleop gripper button), the internal helper `mj_manipulator.grasp_manager.detect_grasped_object` uses MuJoCo contact inspection to identify what landed between the fingers. This is sim-only; on hardware the equivalent is a post-close perception query (see `HardwarePerceptionService` in `mj_manipulator_ros`).
+For the nameless interactive path (REPL `arm.grasp()` with no argument, or the teleop gripper button), the internal helper `mj_manipulator.grasp_manager.find_contacted_object` uses MuJoCo contact counting to identify the object with the most gripper contacts. This is sim-only; on hardware the equivalent is a post-close perception query (see `HardwarePerceptionService` in `mj_manipulator_ros`).
 
 ## Reactive Cartesian Control
 

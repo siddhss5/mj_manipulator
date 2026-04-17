@@ -166,133 +166,60 @@ class GraspManager:
         data.qpos[qpos_adr + 3 : qpos_adr + 7] = quat
 
 
-def detect_grasped_object(
+def find_contacted_object(
     model: mujoco.MjModel,
     data: mujoco.MjData,
     gripper_body_names: list[str],
     candidate_objects: list[str] | None = None,
-    require_bilateral: bool = True,
-    finger_groups: dict[str, list[str]] | None = None,
-    debug: bool = False,
 ) -> str | None:
-    """Detect which object (if any) is being grasped by the gripper.
+    """Find the object with the most gripper contacts (sim only).
 
-    Checks MuJoCo contacts to find objects in contact with gripper bodies.
-    For realistic grasp detection, requires bilateral contact (both finger
-    groups touching the object).
+    Simple contact-count heuristic for the nameless grasp path
+    (REPL / teleop "close the gripper on whatever is there"). The
+    BT / primitives path always passes an explicit object name and
+    uses ``GraspVerifier`` for post-grasp validation. On hardware,
+    the nameless path is identified by ``PerceptionService`` after
+    gripper close.
 
     Args:
         model: MuJoCo model.
-        data: MuJoCo data (after mj_forward).
+        data: MuJoCo data (after ``mj_forward``).
         gripper_body_names: All gripper body names (pads, fingers, etc.).
         candidate_objects: Optional filter — only consider these objects.
-        require_bilateral: If True, requires contact with both finger groups.
-        finger_groups: Mapping of group name to body names for bilateral
-            detection. Example: ``{"left": ["gripper/left_pad"],
-            "right": ["gripper/right_pad"]}``. If None, infers from body
-            names containing "/left_" or "/right_".
-        debug: If True, log detailed contact info.
 
     Returns:
-        Name of grasped object, or None if nothing is grasped.
+        Name of the most-contacted object body, or None.
     """
-    # Build body ID sets
-    all_gripper_body_ids: set[int] = set()
-    group_body_ids: dict[str, set[int]] = {}
-
-    if finger_groups is not None:
-        # Explicit finger groups
-        for group_name, bodies in finger_groups.items():
-            group_body_ids[group_name] = set()
-            for name in bodies:
-                body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
-                if body_id != -1:
-                    all_gripper_body_ids.add(body_id)
-                    group_body_ids[group_name].add(body_id)
-        # Also add any gripper bodies not in explicit groups
-        for name in gripper_body_names:
-            body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
-            if body_id != -1:
-                all_gripper_body_ids.add(body_id)
-    else:
-        # Infer from naming convention (left/right)
-        group_body_ids = {"left": set(), "right": set()}
-        for name in gripper_body_names:
-            body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
-            if body_id != -1:
-                all_gripper_body_ids.add(body_id)
-                if "/left_" in name or name.endswith("/left_pad") or name.endswith("/left_follower"):
-                    group_body_ids["left"].add(body_id)
-                elif "/right_" in name or name.endswith("/right_pad") or name.endswith("/right_follower"):
-                    group_body_ids["right"].add(body_id)
-            elif debug:
-                logger.warning(f"Gripper body not found: {name}")
-
-    if not all_gripper_body_ids:
+    gripper_ids: set[int] = set()
+    for name in gripper_body_names:
+        bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
+        if bid != -1:
+            gripper_ids.add(bid)
+    if not gripper_ids:
         return None
 
-    # Get candidate object body IDs
-    candidate_body_ids: set[int] | None = None
+    candidate_ids: set[int] | None = None
     if candidate_objects is not None:
-        candidate_body_ids = set()
+        candidate_ids = set()
         for name in candidate_objects:
-            body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
-            if body_id != -1:
-                candidate_body_ids.add(body_id)
+            bid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
+            if bid != -1:
+                candidate_ids.add(bid)
 
-    # Track contacts per object: body_id -> {group_name: bool, ..., "count": int}
-    object_contacts: dict[int, dict] = {}
-
+    contact_counts: dict[int, int] = {}
     for body1, body2, _ in iter_contacts(model, data):
-        gripper_body = None
-        other_body = None
-        if body1 in all_gripper_body_ids:
-            gripper_body = body1
-            other_body = body2
-        elif body2 in all_gripper_body_ids:
-            gripper_body = body2
-            other_body = body1
-
-        if gripper_body is None or other_body in all_gripper_body_ids:
+        if body1 in gripper_ids and body2 not in gripper_ids:
+            other = body2
+        elif body2 in gripper_ids and body1 not in gripper_ids:
+            other = body1
+        else:
             continue
-
-        if candidate_body_ids is not None and other_body not in candidate_body_ids:
+        if candidate_ids is not None and other not in candidate_ids:
             continue
+        contact_counts[other] = contact_counts.get(other, 0) + 1
 
-        if other_body not in object_contacts:
-            entry: dict = {"count": 0}
-            for gname in group_body_ids:
-                entry[gname] = False
-            object_contacts[other_body] = entry
-
-        for gname, gids in group_body_ids.items():
-            if gripper_body in gids:
-                object_contacts[other_body][gname] = True
-        object_contacts[other_body]["count"] += 1
-
-    if not object_contacts:
+    if not contact_counts:
         return None
 
-    # Filter by bilateral contact requirement. This heuristic is
-    # sim-only: it's used by the nameless grasp fallback (REPL / teleop
-    # "close the gripper on whatever is there"). The BT / primitives
-    # path always passes an explicit object name and uses GraspVerifier
-    # for post-grasp validation. On hardware, the nameless path is
-    # identified by PerceptionService after gripper close.
-    non_empty_groups = [g for g, ids in group_body_ids.items() if ids]
-    if require_bilateral and len(non_empty_groups) < 2:
-        # Finger group inference failed — fall back to any-contact detection.
-        pass
-    if require_bilateral and len(non_empty_groups) >= 2:
-        bilateral = {
-            bid: info for bid, info in object_contacts.items() if all(info.get(g, False) for g in non_empty_groups)
-        }
-        if bilateral:
-            object_contacts = bilateral
-        else:
-            if debug:
-                logger.info("No bilateral contacts found")
-            return None
-
-    best_body_id = max(object_contacts, key=lambda x: object_contacts[x]["count"])
-    return mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, best_body_id)
+    best = max(contact_counts, key=contact_counts.get)
+    return mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, best)

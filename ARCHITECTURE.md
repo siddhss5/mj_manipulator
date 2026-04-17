@@ -67,7 +67,7 @@ mj_manipulator/
     arm.py              # Generic Arm (FK, IK, planning, execution)
     adapters.py         # pycbirrt RobotModel/IKSolver/CollisionChecker adapters
     collision.py        # Unified grasp-aware CollisionChecker
-    grasp_manager.py    # GraspManager + detect_grasped_object
+    grasp_manager.py    # GraspManager + find_contacted_object
     cartesian.py        # QP solver, twist control, move_until_touch, execute_twist
     executor.py         # KinematicExecutor, PhysicsExecutor (sim-specific)
     controller.py       # PhysicsController (sim-specific, multi-arm physics stepping)

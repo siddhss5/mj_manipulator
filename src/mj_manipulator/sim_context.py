@@ -102,26 +102,24 @@ class SimArmController:
 
         # Resolve which object we think we're grasping. For the BT path
         # this is always the target name. For the nameless interactive
-        # path (REPL / teleop), we fall back to detect_grasped_object —
-        # an iter_contacts-based helper that's sim-only by design. On
-        # hardware the nameless path will be identified by the
+        # path (REPL / teleop), we fall back to find_contacted_object —
+        # a simple contact-count heuristic that's sim-only by design.
+        # On hardware the nameless path will be identified by the
         # PerceptionService after close (see HardwarePerceptionService
         # in mj_manipulator_ros). The bookkeeping below (grasp_manager
         # and verifier) sets up sim's kinematic weld; on hardware
         # there's no weld and the held-object pose comes from FK.
         target = object_name
         if target is None:
-            from mj_manipulator.grasp_manager import detect_grasped_object
+            from mj_manipulator.grasp_manager import find_contacted_object
 
             # Close the gripper first so the post-close contact state
             # reflects what we grabbed.
             self._run_close(candidates)
-            target = detect_grasped_object(
+            target = find_contacted_object(
                 self._arm.env.model,
                 self._arm.env.data,
                 gripper.gripper_body_names,
-                candidate_objects=None,
-                require_bilateral=True,
             )
             if target is None:
                 logger.info("Grasp (no target): no object detected between fingers")

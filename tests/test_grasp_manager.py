@@ -11,7 +11,7 @@ import mujoco
 import numpy as np
 import pytest
 
-from mj_manipulator.grasp_manager import GraspManager, detect_grasped_object
+from mj_manipulator.grasp_manager import GraspManager, find_contacted_object
 
 # Minimal MuJoCo model: 2-joint arm + freejoint box
 _MINIMAL_XML = """
@@ -207,65 +207,31 @@ class TestGraspManager:
             gm._get_body_pose("nonexistent")
 
 
-class TestDetectGraspedObject:
-    """Tests for detect_grasped_object function."""
+class TestFindContactedObject:
+    """Tests for find_contacted_object function."""
 
     def test_empty_gripper_bodies_returns_none(self, model_and_data):
         """Empty gripper body list returns None."""
         model, data = model_and_data
-        assert detect_grasped_object(model, data, []) is None
+        assert find_contacted_object(model, data, []) is None
 
     def test_no_contacts_returns_none(self, model_and_data):
         """No contacts returns None."""
         model, data = model_and_data
-        # Move arm away from objects
         j1_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, "joint1")
         data.qpos[model.jnt_qposadr[j1_id]] = 3.14
         mujoco.mj_forward(model, data)
-
-        result = detect_grasped_object(
-            model,
-            data,
-            ["left_finger", "right_finger"],
-            candidate_objects=["box1", "box2"],
-        )
+        result = find_contacted_object(model, data, ["left_finger", "right_finger"])
         assert result is None
 
     def test_candidate_filter(self, model_and_data):
         """candidate_objects filters to specific objects."""
         model, data = model_and_data
-        result = detect_grasped_object(
-            model,
-            data,
-            ["left_finger", "right_finger"],
-            candidate_objects=["nonexistent"],
-        )
+        result = find_contacted_object(model, data, ["left_finger", "right_finger"], candidate_objects=["nonexistent"])
         assert result is None
 
-    def test_explicit_finger_groups(self, model_and_data):
-        """finger_groups parameter works for bilateral detection."""
+    def test_returns_string_or_none(self, model_and_data):
+        """Result is a body name string or None."""
         model, data = model_and_data
-        # Even without contact, the function should accept the parameter
-        result = detect_grasped_object(
-            model,
-            data,
-            ["left_finger", "right_finger"],
-            finger_groups={"left": ["left_finger"], "right": ["right_finger"]},
-        )
-        # No contacts in this configuration, so None
-        # But this tests that the parameter is accepted without error
-        assert result is None
-
-    def test_name_based_finger_inference(self, model_and_data):
-        """Default name-based finger group inference works."""
-        model, data = model_and_data
-        # left_finger contains "left_" so should be categorized as left group
-        # right_finger contains "right_" so should be right group
-        # This just tests the path doesn't raise
-        result = detect_grasped_object(
-            model,
-            data,
-            ["left_finger", "right_finger"],
-        )
-        # Result depends on contacts
+        result = find_contacted_object(model, data, ["left_finger", "right_finger"])
         assert result is None or isinstance(result, str)
