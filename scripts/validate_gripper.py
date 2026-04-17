@@ -169,7 +169,20 @@ def _sweep(spec, obj, model, data, ids, samples_per_template: int, rng_seed: int
 def validate(gripper_name: str, object_name: str, samples: int, seed: int) -> bool:
     spec = vg.GRIPPERS[gripper_name]
     obj = vg.load_object(object_name)
-    model, data, ids = vg.build_scene(spec, obj)
+    try:
+        model, data, ids = vg.build_scene(spec, obj)
+    except (FileNotFoundError, ModuleNotFoundError) as e:
+        # The gripper's XML resolver couldn't find its model. Common
+        # cause: the gripper lives in another workspace package (e.g.
+        # geodude_assets) that isn't installed in this environment.
+        # Skip gracefully rather than crashing the whole --all run.
+        banner = f" {gripper_name} × {object_name} "
+        print(f"\n{banner:=^70}")
+        print(f"\nSKIPPED: couldn't load gripper model — {type(e).__name__}: {e}")
+        print("  Cause: the resolver in visualize_grasps.GRIPPERS can't locate its XML.")
+        print("  Either install the package owning the model, or run this validator")
+        print("  from the workspace that does (e.g. geodude/scripts/validate_2f140.py).")
+        return True  # Not a failure — we just couldn't evaluate this gripper.
 
     # Declared params from the TSR hand class.
     from mj_manipulator.grasp_sources.prl_assets import _get_hand
