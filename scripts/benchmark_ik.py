@@ -382,7 +382,7 @@ def main() -> int:
         print(f"Generated {len(poses)} reachable poses.", flush=True)
 
         # EAIK
-        eaik_solver = arm_eaik._ik_solver
+        eaik_solver = arm_eaik.ik_solver
         print("  Running EAIK...", flush=True)
         eaik_result = benchmark_ik(arm_name, "eaik", eaik_solver, arm_bare, poses, home)
         report.ik_results.append(eaik_result)
@@ -416,7 +416,7 @@ def main() -> int:
 
             print("  Planning with EAIK...", flush=True)
             eaik_plan = benchmark_planning(
-                arm_name, "eaik", arm_eaik, arm_eaik._ik_solver, home, args.n_plans, args.seed
+                arm_name, "eaik", arm_eaik, arm_eaik.ik_solver, home, args.n_plans, args.seed
             )
             report.plan_results.append(eaik_plan)
 
