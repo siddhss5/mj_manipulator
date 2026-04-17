@@ -675,3 +675,181 @@ class TestCartesianController:
         assert result.success
         assert result.terminated_by == "contact"
         assert result.contact_geom == "obstacle"
+
+
+# ---------------------------------------------------------------------------
+# Physics-mode regression test for #84: internal q_ref integration
+# ---------------------------------------------------------------------------
+
+# 2-DOF arm WITH actuators so we can run physics mode (mj_step).
+_PHYSICS_CART_XML = """
+<mujoco model="test_cartesian_physics">
+  <option gravity="0 0 0"/>
+  <worldbody>
+    <body name="link1" pos="0 0 0.5">
+      <joint name="joint1" type="hinge" axis="0 0 1"
+             range="-3.14 3.14" damping="0.1"/>
+      <geom name="link1_geom" type="capsule" size="0.04"
+            fromto="0 0 0 0.3 0 0"/>
+      <body name="link2" pos="0.3 0 0">
+        <joint name="joint2" type="hinge" axis="0 1 0"
+               range="-3.14 3.14" damping="0.1"/>
+        <geom name="link2_geom" type="capsule" size="0.04"
+              fromto="0 0 0 0.3 0 0"/>
+        <site name="ee_site" pos="0.3 0 0"/>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="act1" joint="joint1" kp="500" kv="50"/>
+    <position name="act2" joint="joint2" kp="500" kv="50"/>
+  </actuator>
+</mujoco>
+"""
+
+
+class TestCartesianControllerPhysicsMode:
+    """Regression tests for #84: CartesianController in physics mode.
+
+    The old code re-read data.qpos every cycle, which in physics mode
+    is the PD-lagged state — the target never accumulated more than one
+    step of lead, so the arm barely moved. The fix adds an internal
+    q_ref that integrates forward independently of the physics lag.
+    """
+
+    @pytest.fixture
+    def physics_setup(self):
+        model = mujoco.MjModel.from_xml_string(_PHYSICS_CART_XML)
+        data = mujoco.MjData(model)
+        mujoco.mj_forward(model, data)
+
+        qpos_idx = []
+        qvel_idx = []
+        for name in JOINT_NAMES:
+            jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
+            qpos_idx.append(int(model.jnt_qposadr[jid]))
+            qvel_idx.append(int(model.jnt_dofadr[jid]))
+        ee_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, "ee_site")
+
+        return model, data, qpos_idx, qvel_idx, ee_id
+
+    def _make_physics_step_fn(self, model, data, qpos_idx):
+        """Return a step_fn that writes PD targets and runs mj_step."""
+        n_substeps = int(0.008 / model.opt.timestep)
+
+        def step_fn(q_target, qd_target):
+            # Write position targets to actuator ctrl
+            for i, idx in enumerate(qpos_idx):
+                aid = i  # act1, act2 map to joint1, joint2
+                data.ctrl[aid] = q_target[i]
+            for _ in range(n_substeps):
+                mujoco.mj_step(model, data)
+
+        return step_fn
+
+    def test_move_produces_correct_direction(self, physics_setup):
+        """EE should move in the commanded direction, not drift or reverse.
+
+        This is the core #84 regression: the old code produced *wrong-
+        direction* motion in physics mode because the PD target never
+        accumulated past one step of lead.
+        """
+        model, data, qpos_idx, qvel_idx, ee_id = physics_setup
+        dt = 0.008
+        step_fn = self._make_physics_step_fn(model, data, qpos_idx)
+
+        controller = CartesianController(
+            model,
+            data,
+            ee_id,
+            qpos_idx,
+            qvel_idx,
+            q_min=np.array([-3.14, -3.14]),
+            q_max=np.array([3.14, 3.14]),
+            qd_max=np.array([2.0, 2.0]),
+            config=CartesianControlConfig(length_scale=10.0, min_progress=0.0),
+            step_fn=step_fn,
+        )
+
+        # Record start EE position
+        start_pos = data.site_xpos[ee_id].copy()
+
+        # Command +y twist for 1 second
+        twist = np.array([0, 0.05, 0, 0, 0, 0])
+        n_steps = int(1.0 / dt)
+        for _ in range(n_steps):
+            controller.step(twist, dt)
+
+        end_pos = data.site_xpos[ee_id].copy()
+        displacement = end_pos - start_pos
+
+        # The EE should have moved primarily in +y.
+        # With PD lag we won't get the full 50 mm, but we should get
+        # at least 60% of it and definitely in the right direction.
+        y_travel = displacement[1]
+        assert y_travel > 0.025, (
+            f"EE should move in +y but traveled only {y_travel * 1000:.1f} mm. "
+            f"Full displacement: {displacement * 1000} mm. "
+            f"This is the #84 regression — the old code would produce ~0 or negative y travel."
+        )
+
+    def test_q_ref_accumulates_ahead_of_physics(self, physics_setup):
+        """The internal _q_ref should lead data.qpos after several steps."""
+        model, data, qpos_idx, qvel_idx, ee_id = physics_setup
+        dt = 0.008
+        step_fn = self._make_physics_step_fn(model, data, qpos_idx)
+
+        controller = CartesianController(
+            model,
+            data,
+            ee_id,
+            qpos_idx,
+            qvel_idx,
+            q_min=np.array([-3.14, -3.14]),
+            q_max=np.array([3.14, 3.14]),
+            qd_max=np.array([2.0, 2.0]),
+            config=CartesianControlConfig(length_scale=10.0, min_progress=0.0),
+            step_fn=step_fn,
+        )
+
+        twist = np.array([0, 0.05, 0, 0, 0, 0])
+        for _ in range(50):
+            controller.step(twist, dt)
+
+        # _q_ref should be ahead of data.qpos (PD hasn't caught up)
+        q_actual = np.array([data.qpos[idx] for idx in qpos_idx])
+        q_ref = controller._q_ref
+        gap = np.linalg.norm(q_ref - q_actual)
+        assert gap > 1e-4, (
+            f"q_ref should lead data.qpos by a PD-lag gap but gap={gap:.6f}. q_ref={q_ref}, q_actual={q_actual}"
+        )
+
+    def test_kinematic_mode_unchanged(self, physics_setup):
+        """In kinematic mode (no step_fn), behaviour should be identical.
+
+        _q_ref == data.qpos after each step because we write directly.
+        """
+        model, data, qpos_idx, qvel_idx, ee_id = physics_setup
+
+        controller = CartesianController(
+            model,
+            data,
+            ee_id,
+            qpos_idx,
+            qvel_idx,
+            q_min=np.array([-3.14, -3.14]),
+            q_max=np.array([3.14, 3.14]),
+            qd_max=np.array([2.0, 2.0]),
+            config=CartesianControlConfig(length_scale=10.0, min_progress=0.0),
+            # No step_fn → kinematic mode (writes qpos directly)
+        )
+
+        twist = np.array([0, 0.05, 0, 0, 0, 0])
+        for _ in range(20):
+            controller.step(twist, 0.004)
+
+        q_actual = np.array([data.qpos[idx] for idx in qpos_idx])
+        q_ref = controller._q_ref
+        assert np.allclose(q_ref, q_actual, atol=1e-10), (
+            f"In kinematic mode, q_ref should exactly equal data.qpos. gap={np.linalg.norm(q_ref - q_actual):.2e}"
+        )

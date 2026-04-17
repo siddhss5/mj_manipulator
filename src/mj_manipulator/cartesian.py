@@ -517,6 +517,7 @@ class CartesianController:
         self.grasp_manager = grasp_manager
         self._default_step_fn = step_fn
         self._q_dot_prev: np.ndarray | None = None
+        self._q_ref: np.ndarray | None = None
 
     @classmethod
     def from_arm(
@@ -542,8 +543,14 @@ class CartesianController:
         )
 
     def reset(self) -> None:
-        """Clear warm-start state. Call before starting a new motion."""
+        """Clear warm-start and internal reference state.
+
+        Call before starting a new motion direction. The internal
+        position reference (``_q_ref``) is lazily re-initialized from
+        ``data.qpos`` on the next ``step()`` call.
+        """
         self._q_dot_prev = None
+        self._q_ref = None
 
     def step(
         self,
@@ -553,11 +560,21 @@ class CartesianController:
     ) -> TwistStepResult:
         """Execute one Cartesian control step.
 
-        Computes joint velocities to achieve the desired twist, writes new
-        joint positions to ``data.qpos``, and updates warm-start state.
+        Computes joint velocities to achieve the desired twist, integrates
+        them into an internal position reference, and hands that reference
+        to the step function (PD target in physics mode, direct qpos in
+        kinematic mode).
+
+        The internal reference (``_q_ref``) is what makes physics mode
+        work: instead of re-reading the PD-lagged ``data.qpos`` every
+        cycle (which never accumulates more than one step of lead), the
+        reference integrates forward over time so the PD target keeps
+        marching ahead. The Jacobian is still computed at the *actual*
+        physics state (``data.qpos``), so the twist-to-joint-velocity
+        mapping reflects the real configuration.
 
         For teleop: call this once per control cycle from your loop. The
-        simulator (``mj_forward`` / ``mj_step``) handles kinematics update.
+        simulator (``mj_forward`` / ``mj_step``) handles kinematics.
 
         Args:
             twist: 6D desired twist [vx, vy, vz, wx, wy, wz].
@@ -567,7 +584,16 @@ class CartesianController:
         Returns:
             TwistStepResult with joint velocities and diagnostics.
         """
-        q_new, result = step_twist(
+        # Lazily seed the internal reference from the current physics state.
+        if self._q_ref is None:
+            self._q_ref = np.array([self.data.qpos[idx] for idx in self.joint_qpos_indices])
+
+        # step_twist computes the Jacobian at data.qpos (the actual
+        # physics state) so the linearization is correct. We only use
+        # the joint_velocities from the result — the q_new it returns
+        # is data.qpos + qd*dt, which we DON'T want (that's the old
+        # closed-loop-against-lagged-state bug).
+        _, result = step_twist(
             model=self.model,
             data=self.data,
             ee_site_id=self.ee_site_id,
@@ -584,14 +610,25 @@ class CartesianController:
         )
         self._q_dot_prev = result.joint_velocities
 
+        # Integrate the INTERNAL reference forward — this is the key fix.
+        # In kinematic mode this is equivalent to the old behaviour (qpos
+        # is written directly, so data.qpos == _q_ref after step_fn). In
+        # physics mode, _q_ref accumulates the intended position over time
+        # rather than being reset to the PD-lagged state each cycle.
+        self._q_ref = np.clip(
+            self._q_ref + result.joint_velocities * dt,
+            self.q_min,
+            self.q_max,
+        )
+
         # Route through step function (ctx.step_cartesian in physics mode,
         # direct qpos write + mj_forward in kinematic mode)
         step_fn = self._default_step_fn
         if step_fn is not None:
-            step_fn(q_new, result.joint_velocities)
+            step_fn(self._q_ref.copy(), result.joint_velocities)
         else:
             for i, idx in enumerate(self.joint_qpos_indices):
-                self.data.qpos[idx] = q_new[i]
+                self.data.qpos[idx] = self._q_ref[i]
             mujoco.mj_forward(self.model, self.data)
             if self.grasp_manager is not None:
                 self.grasp_manager.update_attached_poses(self.data)
