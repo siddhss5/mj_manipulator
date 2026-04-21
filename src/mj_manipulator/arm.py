@@ -356,8 +356,10 @@ class Arm:
         if len(q) != self.dof:
             raise ValueError(f"Expected {self.dof} joints, got {len(q)}")
         lower, upper = self.get_joint_limits()
+        model = self.env.model
         for i in range(self.dof):
-            if q[i] < lower[i] or q[i] > upper[i]:
+            jid = self.joint_ids[i]
+            if model.jnt_limited[jid] and (q[i] < lower[i] or q[i] > upper[i]):
                 raise ValueError(f"Joint {i} value {q[i]:.3f} outside limits [{lower[i]:.3f}, {upper[i]:.3f}]")
         for i, idx in enumerate(self.joint_qpos_indices):
             self.env.data.qpos[idx] = q[i]
@@ -487,12 +489,26 @@ class Arm:
         return _read_site_pose(self.env.data, self.ee_site_id, self.config.tcp_offset)
 
     def get_joint_limits(self) -> tuple[np.ndarray, np.ndarray]:
-        """Joint position limits as (lower, upper) arrays."""
+        """Joint position limits as (lower, upper) arrays.
+
+        Unlimited joints (limited=False) return [-π, π] as a nominal
+        range for sampling/planning. The actual joint has no physical
+        limit — angular_joints handles wrapping in the planner.
+        """
         if self._joint_limits is None:
             model = self.env.model
-            lower = np.array([model.jnt_range[jid, 0] for jid in self.joint_ids])
-            upper = np.array([model.jnt_range[jid, 1] for jid in self.joint_ids])
-            self._joint_limits = (lower, upper)
+            lower = []
+            upper = []
+            for jid in self.joint_ids:
+                if model.jnt_limited[jid]:
+                    lower.append(model.jnt_range[jid, 0])
+                    upper.append(model.jnt_range[jid, 1])
+                else:
+                    # Unlimited joint — use ±2π as nominal range.
+                    # The planner's angular_joints handles wrapping.
+                    lower.append(-2 * np.pi)
+                    upper.append(2 * np.pi)
+            self._joint_limits = (np.array(lower), np.array(upper))
         return self._joint_limits
 
     # -----------------------------------------------------------------
@@ -576,15 +592,18 @@ class Arm:
         if config is None:
             defaults = self.config.planning_defaults
 
-            # Detect continuous joints (range > 2π) for angular distance
+            # Detect continuous joints for angular distance wrapping.
+            # A joint is continuous if unlimited OR range > 2π.
             angular = []
             for jname in self.config.joint_names:
                 jid = mujoco.mj_name2id(self.env.model, mujoco.mjtObj.mjOBJ_JOINT, jname)
-                if jid >= 0 and self.env.model.jnt_limited[jid]:
+                if jid < 0:
+                    angular.append(False)
+                elif not self.env.model.jnt_limited[jid]:
+                    angular.append(True)
+                else:
                     rng = self.env.model.jnt_range[jid]
                     angular.append((rng[1] - rng[0]) > 2 * np.pi * 1.5)
-                else:
-                    angular.append(not self.env.model.jnt_limited[jid] if jid >= 0 else False)
             angular_joints = tuple(angular) if any(angular) else None
 
             config = CBiRRTConfig(
