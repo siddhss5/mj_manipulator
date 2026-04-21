@@ -575,12 +575,25 @@ class Arm:
         """
         if config is None:
             defaults = self.config.planning_defaults
+
+            # Detect continuous joints (range > 2π) for angular distance
+            angular = []
+            for jname in self.config.joint_names:
+                jid = mujoco.mj_name2id(self.env.model, mujoco.mjtObj.mjOBJ_JOINT, jname)
+                if jid >= 0 and self.env.model.jnt_limited[jid]:
+                    rng = self.env.model.jnt_range[jid]
+                    angular.append((rng[1] - rng[0]) > 2 * np.pi * 1.5)
+                else:
+                    angular.append(not self.env.model.jnt_limited[jid] if jid >= 0 else False)
+            angular_joints = tuple(angular) if any(angular) else None
+
             config = CBiRRTConfig(
                 timeout=defaults.timeout,
                 max_iterations=defaults.max_iterations,
                 step_size=defaults.step_size,
                 goal_bias=defaults.goal_bias,
                 smoothing_iterations=defaults.smoothing_iterations,
+                angular_joints=angular_joints,
             )
 
         # Use provided env or fork for isolated planning state
