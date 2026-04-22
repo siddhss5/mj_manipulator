@@ -756,6 +756,26 @@ class SimContext:
         # 5. Sync viewer to show the new state
         self.sync()
 
+    def reset_to_keyframe(self, keyframe: str) -> None:
+        """Reset MuJoCo state to a named keyframe and clean up.
+
+        Single entry point for resetting — handles the MuJoCo state reset
+        AND all the cleanup (teleop, grasps, ownership, controller targets).
+        Robots should call this instead of ``mj_resetDataKeyframe`` +
+        ``reset_state()`` separately.
+
+        Args:
+            keyframe: MuJoCo keyframe name (must exist in the model).
+
+        Raises:
+            ValueError: If the keyframe is not found in the model.
+        """
+        key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, keyframe)
+        if key_id == -1:
+            raise ValueError(f"Keyframe '{keyframe}' not found in model")
+        mujoco.mj_resetDataKeyframe(self._model, self._data, key_id)
+        self.reset_state()
+
     def is_running(self) -> bool:
         """Check if context is still active.
 
