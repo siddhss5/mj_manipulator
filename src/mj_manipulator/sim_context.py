@@ -707,6 +707,38 @@ class SimContext:
         if self._controller is not None:
             self._controller.hold_all()
 
+    def reset_state(self) -> None:
+        """Deactivate teleop, abort runners, and hold at current qpos.
+
+        Call after modifying ``data.qpos`` (e.g. ``mj_resetDataKeyframe``)
+        so the controller, event loop, and ownership registry all agree
+        on the new state. This is the safe way to reset during interactive
+        sessions — it ensures teleop gizmos are hidden, running trajectories
+        are stopped, and the controller won't fight the new positions.
+
+        Typical usage::
+
+            mujoco.mj_resetDataKeyframe(model, data, key_id)
+            ctx.reset_state()
+        """
+        # 1. Deactivate all teleop controllers and reset their panels
+        if self._event_loop is not None:
+            self._event_loop._deactivate_all_teleop()
+
+        # 2. Clear ownership (abort any running trajectories, release all arms)
+        if self._ownership is not None:
+            self._ownership.abort_all()
+            # Let one tick process the aborts so runners see them
+            # (not needed — abort_all sets flags, runners check on next advance_all)
+            self._ownership.clear_all()
+
+        # 3. Tell the controller to hold at the new qpos
+        if self._controller is not None:
+            self._controller.hold_all()
+
+        # 4. Sync viewer to show the new state
+        self.sync()
+
     def is_running(self) -> bool:
         """Check if context is still active.
 
