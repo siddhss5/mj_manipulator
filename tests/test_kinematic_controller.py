@@ -178,7 +178,7 @@ class TestTickDrivenBimanualKinematic:
 
         positions = np.array([[0.0, 0.0], [0.1, 0.1], [0.2, 0.2]])
         traj = make_trajectory(positions, entity="arm1")
-        future = ctrl.start_trajectory("arm1", traj)
+        ctrl.start_trajectory("arm1", traj)
 
         # Simulate teleop setting targets on arm2 each tick
         for i in range(3):

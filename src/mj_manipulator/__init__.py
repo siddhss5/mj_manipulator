@@ -45,6 +45,7 @@ from mj_manipulator.grasp_verifier import (
     VerifierParams,
 )
 from mj_manipulator.grippers import FrankaGripper, RobotiqGripper
+from mj_manipulator.kinematic_controller import KinematicController
 from mj_manipulator.load_signals import (
     GripperPositionSignal,
     JointTorqueSignal,
@@ -53,7 +54,6 @@ from mj_manipulator.load_signals import (
 )
 from mj_manipulator.ownership import OwnerKind, OwnershipRegistry
 from mj_manipulator.perception import SimPerceptionService
-from mj_manipulator.kinematic_controller import KinematicController
 from mj_manipulator.physics_controller import ArmPhysicsExecutor, PhysicsController
 from mj_manipulator.planning import PlanResult
 from mj_manipulator.protocols import (

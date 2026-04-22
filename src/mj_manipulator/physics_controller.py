@@ -26,15 +26,10 @@ from mj_manipulator.controller import (
     ArmExecutor,
     Controller,
     EntityExecutor,
-    TrajectoryRunner,
-    _ArmState,
-    _EntityState,
-    _GripperState,
 )
 
 if TYPE_CHECKING:
     from mj_manipulator.arm import Arm
-    from mj_manipulator.trajectory import Trajectory
 
 logger = logging.getLogger(__name__)
 
