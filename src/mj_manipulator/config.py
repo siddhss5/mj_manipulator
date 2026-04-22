@@ -84,8 +84,17 @@ class ArmConfig(EntityConfig):
 
 
 @dataclass
-class PhysicsExecutionConfig:
-    """Parameters for physics-based trajectory execution."""
+class ExecutionConfig:
+    """Parameters for trajectory execution (all modes).
+
+    Used by both PhysicsController and KinematicController. In kinematic
+    mode, convergence is immediate (qpos matches target exactly after one
+    step), so tolerance/timeout values are effectively unused but kept
+    for interface uniformity.
+
+    ``lookahead_time`` is only used by PhysicsController for velocity
+    feedforward; kinematic mode ignores it.
+    """
 
     control_dt: float = 0.008  # 125 Hz
     lookahead_time: float = 0.1  # Velocity feedforward gain (seconds)
@@ -95,13 +104,17 @@ class PhysicsExecutionConfig:
     base_settling_steps: int = 50
 
     @classmethod
-    def tight(cls) -> "PhysicsExecutionConfig":
+    def tight(cls) -> "ExecutionConfig":
         """Tighter convergence for precision tasks."""
         return cls(
             position_tolerance=0.02,
             velocity_tolerance=0.05,
             convergence_timeout_steps=1000,
         )
+
+
+# Backwards compatibility alias
+PhysicsExecutionConfig = ExecutionConfig
 
 
 @dataclass

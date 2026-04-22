@@ -189,14 +189,9 @@ class FrankaDemoRobot(RobotBase):
         if gripper and gripper.actuator_id is not None:
             self.data.ctrl[gripper.actuator_id] = gripper.ctrl_open
 
+        # Deactivate teleop, release grasps, abort runners, hold at new qpos
         if self._context is not None:
-            self._context.hold()
-
-        # Release any active grasps
-        for arm_name in list(self.arms.keys()):
-            for obj in list(self.grasp_manager.get_grasped_by(arm_name)):
-                self.grasp_manager.mark_released(obj)
-                self.grasp_manager.detach_object(obj)
+            self._context.reset_state()
 
         # Hide everything currently active
         if self._env.registry is not None:

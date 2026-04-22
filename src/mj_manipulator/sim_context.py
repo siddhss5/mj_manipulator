@@ -38,9 +38,9 @@ import numpy as np
 if TYPE_CHECKING:
     from mj_manipulator.arm import Arm
     from mj_manipulator.config import PhysicsConfig
+    from mj_manipulator.controller import Controller
     from mj_manipulator.event_loop import PhysicsEventLoop
     from mj_manipulator.ownership import OwnershipRegistry
-    from mj_manipulator.physics_controller import PhysicsController
 
 logger = logging.getLogger(__name__)
 
@@ -165,13 +165,9 @@ class SimArmController:
         return target
 
     def _run_close(self, candidates: list[str] | None) -> None:
-        """Dispatch to the physics or kinematic close routine."""
-        gripper = self._arm.gripper
+        """Close the gripper via the controller (physics or kinematic)."""
         arm_name = self._arm.config.name
-        if self._context._controller is not None:
-            self._context._controller.close_gripper(arm_name, candidate_objects=candidates)
-        else:
-            gripper.kinematic_close()  # type: ignore[union-attr]
+        self._context._controller.close_gripper(arm_name, candidate_objects=candidates)
 
     def release(self, object_name: str | None = None) -> None:
         """Open gripper and release held object(s).
@@ -207,10 +203,7 @@ class SimArmController:
         if gripper.grasp_verifier is not None:
             gripper.grasp_verifier.mark_released()
 
-        if self._context._controller is not None:
-            self._context._controller.open_gripper(arm_name)
-        else:
-            gripper.kinematic_open()
+        self._context._controller.open_gripper(arm_name)
 
         self._context.sync()
 
@@ -287,7 +280,7 @@ class SimContext:
         self._viewer_fps = viewer_fps
         self._event_loop = event_loop
 
-        self._controller: PhysicsController | None = None
+        self._controller: Controller | None = None
         self._executors: dict[str, object] = {}
         self._arm_controllers: dict[str, SimArmController] = {}
         self._owns_viewer = False
@@ -334,8 +327,8 @@ class SimContext:
         for arm in self._arms.values():
             arm.ft_valid = self._physics
 
-        # Wire event loop to controller for tick-driven mode
-        if self._event_loop is not None and self._controller is not None:
+        # Wire event loop to controller (both physics and kinematic modes)
+        if self._event_loop is not None:
             self._event_loop.set_controller(self._controller)
 
             # Create ownership registry for all arms + entities
@@ -429,11 +422,6 @@ class SimContext:
         """
         if self._event_loop is not None and self._controller is not None:
             return self._execute_tick_driven(item, abort_fn=abort_fn)
-
-        if self._event_loop is not None:
-            # Kinematic with event loop: legacy blocking dispatch
-            self._event_loop._deactivate_all_teleop()
-            return self._event_loop.run_on_physics_thread(lambda: self._execute_impl(item, abort_fn=abort_fn))
 
         return self._execute_impl(item, abort_fn=abort_fn)
 
@@ -629,11 +617,7 @@ class SimContext:
                     self._controller.set_arm_target(name, q)
             self._controller.step()
         else:
-            if targets:
-                for name, q in targets.items():
-                    executor = self._executors.get(name)
-                    if executor is not None:
-                        executor.set_position(np.asarray(q))
+            # Fallback: no controller (shouldn't happen in normal usage)
             mujoco.mj_forward(self._model, self._data)
             self._throttled_viewer_sync()
 
@@ -657,14 +641,12 @@ class SimContext:
         position = np.asarray(position)
 
         if self._event_loop is not None and self._controller is not None:
-            # Tick-driven: set targets and step physics.
+            # Tick-driven: set targets, let tick() do the step.
             # On the owner thread (e.g. CartesianMove inside a BT tree),
             # we must pump tick() ourselves — nobody else will.
             self._event_loop.run_on_physics_thread(lambda: self._set_reactive_target(arm_name, position, velocity))
             if threading.get_ident() == self._event_loop._owner_thread:
                 self._event_loop.tick()
-        elif self._event_loop is not None:
-            self._event_loop.run_on_physics_thread(lambda: self._step_cartesian_impl(arm_name, position, velocity))
         else:
             self._step_cartesian_impl(arm_name, position, velocity)
 
@@ -681,10 +663,9 @@ class SimContext:
         if self._controller is not None:
             self._controller.step_reactive(arm_name, position, velocity)
         else:
-            executor = self._executors.get(arm_name)
-            if executor is not None:
-                executor.set_position(position)
-                executor.step()
+            # Fallback: no controller (shouldn't happen in normal usage)
+            mujoco.mj_forward(self._model, self._data)
+            self._throttled_viewer_sync()
 
     def set_arm_target(
         self,
@@ -703,6 +684,7 @@ class SimContext:
         """
         if self._controller is not None:
             self._controller.set_arm_target(arm_name, position, velocity)
+        # When no controller, this is a no-op (shouldn't happen in normal usage)
 
     def sync(self) -> None:
         """Synchronize state with simulation (mj_forward + viewer sync)."""
@@ -724,6 +706,76 @@ class SimContext:
         """
         if self._controller is not None:
             self._controller.hold_all()
+
+    def reset_state(self) -> None:
+        """Deactivate teleop, release grasps, abort runners, hold at current qpos.
+
+        Call after modifying ``data.qpos`` (e.g. ``mj_resetDataKeyframe``)
+        so the controller, event loop, ownership registry, grasp manager,
+        and grasp verifiers all agree on the new state.
+
+        This is the safe way to reset during interactive sessions — it
+        ensures teleop gizmos are hidden, running trajectories are stopped,
+        held objects are released, and the controller won't fight the new
+        positions.
+
+        Typical usage::
+
+            mujoco.mj_resetDataKeyframe(model, data, key_id)
+            ctx.reset_state()
+        """
+        # 1. Deactivate all teleop controllers and reset their panels
+        if self._event_loop is not None:
+            self._event_loop._deactivate_all_teleop()
+
+        # 2. Clear ownership (abort any running trajectories, release all arms)
+        if self._ownership is not None:
+            self._ownership.abort_all()
+            self._ownership.clear_all()
+
+        # 3. Release all grasps: clear grasp manager bookkeeping, detach
+        #    kinematic welds, and reset grasp verifiers to IDLE.
+        for arm in self._arms.values():
+            arm_name = arm.config.name
+            gm = arm.grasp_manager
+            if gm is not None:
+                for obj in list(gm.get_grasped_by(arm_name)):
+                    gm.mark_released(obj)
+                    gm.detach_object(obj)
+
+            gripper = arm.gripper
+            if gripper is not None:
+                if gripper.grasp_verifier is not None:
+                    gripper.grasp_verifier.mark_released()
+
+        # 4. Defer hold to the next tick — the caller may modify qpos
+        #    after this call (e.g. setup_scene, base height changes).
+        #    Whatever qpos exists at tick-time gets captured.
+        if self._controller is not None:
+            self._controller.request_hold()
+
+        # 5. Sync viewer to show the new state
+        self.sync()
+
+    def reset_to_keyframe(self, keyframe: str) -> None:
+        """Reset MuJoCo state to a named keyframe and clean up.
+
+        Single entry point for resetting — handles the MuJoCo state reset
+        AND all the cleanup (teleop, grasps, ownership, controller targets).
+        Robots should call this instead of ``mj_resetDataKeyframe`` +
+        ``reset_state()`` separately.
+
+        Args:
+            keyframe: MuJoCo keyframe name (must exist in the model).
+
+        Raises:
+            ValueError: If the keyframe is not found in the model.
+        """
+        key_id = mujoco.mj_name2id(self._model, mujoco.mjtObj.mjOBJ_KEY, keyframe)
+        if key_id == -1:
+            raise ValueError(f"Keyframe '{keyframe}' not found in model")
+        mujoco.mj_resetDataKeyframe(self._model, self._data, key_id)
+        self.reset_state()
 
     def is_running(self) -> bool:
         """Check if context is still active.
@@ -871,31 +923,26 @@ class SimContext:
             mujoco.mj_step(self._model, self._data)
 
     def _setup_kinematic(self, viewer_sync_interval: float) -> None:
-        """Create per-arm and per-entity KinematicExecutors."""
-        from mj_manipulator.executor import KinematicExecutor
+        """Create KinematicController and per-arm executor wrappers."""
+        from mj_manipulator.kinematic_controller import KinematicController
 
-        for name, arm in self._arms.items():
-            self._executors[name] = KinematicExecutor(
-                self._model,
-                self._data,
-                arm.joint_qpos_indices,
-                viewer=self._viewer,
-                grasp_manager=arm.grasp_manager,
-                viewer_sync_interval=viewer_sync_interval,
-                abort_fn=self._abort_fn,
-            )
+        self._controller = KinematicController(
+            self._model,
+            self._data,
+            self._arms,
+            viewer=self._viewer,
+            viewer_sync_interval=viewer_sync_interval,
+            initial_positions=self._initial_positions,
+            entities=self._entities,
+            abort_fn=self._abort_fn,
+        )
 
-        for name, entity in self._entities.items():
-            gm = getattr(entity, "grasp_manager", None)
-            self._executors[name] = KinematicExecutor(
-                self._model,
-                self._data,
-                entity.joint_qpos_indices,
-                viewer=self._viewer,
-                grasp_manager=gm,
-                viewer_sync_interval=viewer_sync_interval,
-                abort_fn=self._abort_fn,
-            )
+        # Executor wrappers for the no-event-loop legacy path
+        for name in self._arms:
+            self._executors[name] = self._controller.get_executor(name)
+
+        for name in self._entities:
+            self._executors[name] = self._controller.get_entity_executor(name)
 
     def _execute_trajectory(self, trajectory) -> bool:
         """Route a single trajectory to its executor."""

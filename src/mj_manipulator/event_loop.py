@@ -8,11 +8,11 @@ This module provides a PhysicsEventLoop that ensures all MuJoCo access
 happens on one thread. Other threads submit work via Futures.
 
 Design follows the game loop / update method pattern: tick() is the single
-owner of the physics step. Trajectory runners and teleop controllers are
-target providers that write to arm state each tick. One mj_step per cycle
-with all arms' targets applied.
+owner of the step. Trajectory runners and teleop controllers are target
+providers that write to arm state each tick. One step per cycle with all
+arms' targets applied. Works identically for physics and kinematic modes.
 
-Usage (from geodude console.py)::
+Usage (from console.py)::
 
     loop = PhysicsEventLoop()
     # ... pass loop to SimContext ...
@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
 
 if TYPE_CHECKING:
-    from mj_manipulator.physics_controller import PhysicsController
+    from mj_manipulator.controller import Controller
 
 logger = logging.getLogger(__name__)
 
@@ -58,12 +58,10 @@ class PhysicsEventLoop:
     The owner thread calls tick() in a loop (typically an IPython inputhook).
     Each tick:
 
-    1. Processes queued commands (fast — e.g. starting a trajectory runner)
-    2. Advances active trajectory runners (writes targets)
+    1. Advances active trajectory runners (writes targets)
+    2. Processes queued commands (fast — e.g. starting a trajectory runner)
     3. Steps active teleop controllers (writes targets)
-    4. Calls controller.step() — ONE mj_step with all arms
-    5. Syncs the viewer
-    6. Falls back to idle step if nothing else ran
+    4. Calls controller.step() — one control cycle with all arms
     """
 
     def __init__(self) -> None:
@@ -71,18 +69,16 @@ class PhysicsEventLoop:
         self._owner_thread: int = threading.get_ident()
         self._teleop_entries: list[tuple[Any, Any]] = []  # (controller, panel)
         self._teleop_lock = threading.Lock()  # protects _teleop_entries
-        self._controller: PhysicsController | None = None
-        self._idle_step_fn: Callable[[], None] | None = None
-        self._viewer_sync_fn: Callable[[], None] | None = None
+        self._controller: Controller | None = None
         self._in_tick: bool = False  # reentrancy guard
 
     # -- Controller setup (called from SimContext.__enter__) ------------------
 
-    def set_controller(self, controller: PhysicsController | None) -> None:
-        """Set the PhysicsController that tick() drives.
+    def set_controller(self, controller: Controller | None) -> None:
+        """Set the Controller that tick() drives.
 
         When set, tick() calls controller.advance_all() and controller.step()
-        each cycle. When None, falls back to idle_step_fn.
+        each cycle. When None, tick() is a no-op.
         """
         self._controller = controller
 
@@ -144,33 +140,26 @@ class PhysicsEventLoop:
     def tick(self) -> None:
         """Process one event loop cycle. Called from the inputhook.
 
-        When a PhysicsController is set (tick-driven mode):
+        Requires a controller to be set via :meth:`set_controller`.
+        Each tick:
 
-        1. Process all queued commands (fast — start runners, etc.)
-        2. Advance active trajectory runners (write targets)
+        1. Advance active trajectory runners (write targets)
+        2. Process all queued commands (fast — start runners, etc.)
         3. Step active teleop controllers (write targets)
-        4. controller.step() — ONE mj_step with all arms
-        5. Sync viewer
-
-        When no controller is set (legacy mode):
-
-        1. Process one queued command (may block — e.g. execute)
-        2. Step active teleop controllers
-        3. Idle physics step
+        4. controller.step() — one control cycle with all arms
         """
         if self._in_tick:
             return  # prevent recursion (e.g. teleop → step_cartesian → tick)
+        if self._controller is None:
+            return
         self._in_tick = True
         try:
-            if self._controller is not None:
-                self._tick_driven()
-            else:
-                self._tick_legacy()
+            self._tick_driven()
         finally:
             self._in_tick = False
 
     def _tick_driven(self) -> None:
-        """Tick-driven mode: controller owns physics, runners provide targets."""
+        """Controller-driven tick: runners provide targets, controller steps."""
         # 1. Advance active trajectory runners (writes targets)
         #    Runs BEFORE commands so that abort flags set by preempt()
         #    are seen before _do_activate clears them.
@@ -188,7 +177,7 @@ class PhysicsEventLoop:
             except Exception as e:
                 cmd.future.set_exception(e)
 
-        # 3. Step active teleop controllers (writes targets, no mj_step)
+        # 3. Step active teleop controllers (writes targets, no step)
         with self._teleop_lock:
             entries = list(self._teleop_entries)
         for controller, panel in entries:
@@ -203,55 +192,6 @@ class PhysicsEventLoop:
                     if panel is not None:
                         panel._on_teleop_error()
 
-        # 4. Single physics step for ALL arms
-        # (PhysicsController.step → _step_physics handles throttled viewer sync)
+        # 4. Single control step for ALL arms
+        # (Controller.step → _apply_targets_and_step handles mode-specific logic)
         self._controller.step()
-
-    def _tick_legacy(self) -> None:
-        """Legacy mode: backwards compatible with blocking execute()."""
-        stepped = False
-
-        # 1. Process one queued command (may block for seconds — e.g. execute)
-        try:
-            cmd = self._queue.get_nowait()
-        except queue.Empty:
-            pass
-        else:
-            self._deactivate_all_teleop()
-            try:
-                result = cmd.fn()
-                cmd.future.set_result(result)
-            except Exception as e:
-                cmd.future.set_exception(e)
-            stepped = True
-            return
-
-        # 2. Step active teleop controllers
-        with self._teleop_lock:
-            entries = list(self._teleop_entries)
-        for controller, panel in entries:
-            if controller.is_active:
-                try:
-                    state = controller.step()
-                    if panel is not None:
-                        panel._update_status(state)
-                except Exception as e:
-                    logger.warning("Teleop step error: %s", e)
-                    controller.deactivate()
-                    if panel is not None:
-                        panel._on_teleop_error()
-                stepped = True
-
-        if stepped and self._viewer_sync_fn is not None:
-            try:
-                self._viewer_sync_fn()
-            except Exception:
-                pass
-            return
-
-        # 3. Idle physics step (gravity, contacts, F/T sensors)
-        if self._idle_step_fn is not None:
-            try:
-                self._idle_step_fn()
-            except Exception:
-                pass

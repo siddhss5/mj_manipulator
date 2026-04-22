@@ -146,10 +146,7 @@ def start_console(
     with robot.sim(physics=physics, headless=show_viewer, viewer=sim_viewer, event_loop=event_loop) as ctx:
         user_ns["ctx"] = ctx
 
-        # Wire event loop
-        event_loop._idle_step_fn = lambda: ctx.step()
-        if viser_viewer is not None:
-            event_loop._viewer_sync_fn = lambda: viser_viewer.sync()
+        # Event loop is wired to the controller in SimContext.__enter__
 
         # -- Teleop panels (needs ctx) -----------------------------------------
         if viser and viser_viewer is not None and tabs is not None:
@@ -224,20 +221,19 @@ def start_console(
         )
         shell.prompts = _Prompts(shell)
 
-        # -- Physics inputhook -------------------------------------------------
-        if physics:
-            control_dt = ctx.control_dt
+        # -- Inputhook (drives event loop while REPL waits for input) ----------
+        control_dt = ctx.control_dt
 
-            def _inputhook(context):
-                t_next = time.monotonic() + control_dt
-                while not context.input_is_ready():
-                    now = time.monotonic()
-                    if now >= t_next:
-                        event_loop.tick()
-                        t_next = now + control_dt
-                    else:
-                        time.sleep(min(t_next - now, 0.001))
+        def _inputhook(context):
+            t_next = time.monotonic() + control_dt
+            while not context.input_is_ready():
+                now = time.monotonic()
+                if now >= t_next:
+                    event_loop.tick()
+                    t_next = now + control_dt
+                else:
+                    time.sleep(min(t_next - now, 0.001))
 
-            shell._inputhook = _inputhook
+        shell._inputhook = _inputhook
 
         shell()
