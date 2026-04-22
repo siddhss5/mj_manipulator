@@ -545,11 +545,13 @@ class TeleopController:
         if angle < 1e-6:
             rot_err = np.zeros(3)
         else:
-            axis = np.array([
-                R_err[2, 1] - R_err[1, 2],
-                R_err[0, 2] - R_err[2, 0],
-                R_err[1, 0] - R_err[0, 1],
-            ]) / (2 * np.sin(angle))
+            axis = np.array(
+                [
+                    R_err[2, 1] - R_err[1, 2],
+                    R_err[0, 2] - R_err[2, 0],
+                    R_err[1, 0] - R_err[0, 1],
+                ]
+            ) / (2 * np.sin(angle))
             rot_err = axis * angle
 
         gain = 1.0

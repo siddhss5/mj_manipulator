@@ -53,7 +53,9 @@ class TestKinematicControllerConstruction:
     def test_custom_control_dt(self, model_and_data, mock_arm):
         model, data = model_and_data
         ctrl = KinematicController(
-            model, data, {"arm": mock_arm},
+            model,
+            data,
+            {"arm": mock_arm},
             config=ExecutionConfig(control_dt=0.01),
         )
         assert ctrl.control_dt == 0.01
