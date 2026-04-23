@@ -644,43 +644,59 @@ class TeleopController:
     def _step_twist(self, twist: np.ndarray) -> TeleopState:
         """CartesianController-based twist tracking.
 
-        CartesianController sets targets via step_cartesian — we must
-        NOT call _check_and_commit (which would double-step and overwrite
-        the target). Instead, check collisions after the step and revert
-        if in reject mode.
+        Computes a candidate joint config from the twist via Jacobian QP,
+        then feeds it through the same _check_and_commit path as the
+        EAIK pose path. Both paths get identical collision checking,
+        velocity clamping, and reject/allow behavior.
         """
-        # Snapshot position before the step (for revert on reject)
-        q_before = self._arm.get_joint_positions().copy()
+        from mj_manipulator.cartesian import step_twist
 
         ctrl = self._get_cart_ctrl()
-        result = ctrl.step(twist, dt=self._config.twist_dt)
+        dt = self._config.twist_dt
+
+        # Seed internal reference if needed (same as CartesianController.step)
+        if ctrl._q_ref is None:
+            ctrl._q_ref = np.array([ctrl.data.qpos[idx] for idx in ctrl.joint_qpos_indices])
+
+        # Compute joint velocities (Jacobian at current physics state)
+        _, result = step_twist(
+            model=ctrl.model,
+            data=ctrl.data,
+            ee_site_id=ctrl.ee_site_id,
+            joint_qpos_indices=ctrl.joint_qpos_indices,
+            joint_qvel_indices=ctrl.joint_qvel_indices,
+            q_min=ctrl.q_min,
+            q_max=ctrl.q_max,
+            qd_max=ctrl.qd_max,
+            twist=twist,
+            frame="world",
+            dt=dt,
+            config=ctrl.config,
+            q_dot_prev=ctrl._q_dot_prev,
+        )
 
         if result.achieved_fraction < 0.1:
             return TeleopState.UNREACHABLE
 
-        # Check collisions at the new config
-        q_after = q_before + result.joint_velocities * self._config.twist_dt
-        in_collision = False
-        cc = self._get_collision_checker()
-        if cc is not None:
-            in_collision = not cc.is_valid(q_after)
-        if not in_collision:
-            in_collision = self._check_live_collisions(q_after)
+        # Compute candidate config (same integration as CartesianController)
+        q_candidate = np.clip(
+            ctrl._q_ref + result.joint_velocities * dt,
+            ctrl.q_min,
+            ctrl.q_max,
+        )
 
-        if in_collision:
-            mode = self._config.safety_mode
-            if mode == SafetyMode.REJECT:
-                # Revert: send the pre-step position so the controller
-                # doesn't apply the colliding config on the next tick.
-                arm_name = self._arm.config.name
-                self._ctx.step_cartesian(arm_name, q_before)
-                # Reset CartesianController's internal reference so it
-                # doesn't keep integrating past the collision boundary.
-                ctrl._q_ref = q_before.copy()
-                return TeleopState.UNREACHABLE
-            return TeleopState.TRACKING_COLLISION
+        # Check and commit through the unified path (collision check,
+        # velocity clamp, step_cartesian). Same path as EAIK pose.
+        state = self._check_and_commit(q_candidate)
 
-        return TeleopState.TRACKING
+        # Update CartesianController state only if the step was accepted.
+        # If rejected (UNREACHABLE), _q_ref stays at the last safe
+        # position so the next twist doesn't integrate past the boundary.
+        if state != TeleopState.UNREACHABLE:
+            ctrl._q_dot_prev = result.joint_velocities
+            ctrl._q_ref = q_candidate
+
+        return state
 
     def _get_cart_ctrl(self):
         """Lazily create CartesianController for twist input."""
