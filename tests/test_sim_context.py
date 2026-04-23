@@ -9,9 +9,11 @@ Tests run headless (no viewer).
 
 import numpy as np
 import pytest
-from conftest import make_trajectory
+from conftest import MockArm, make_trajectory
 
 from mj_manipulator.config import PhysicsConfig, PhysicsExecutionConfig
+from mj_manipulator.event_loop import PhysicsEventLoop
+from mj_manipulator.ownership import OwnerKind
 from mj_manipulator.protocols import ArmController, ExecutionContext
 from mj_manipulator.sim_context import SimArmController, SimContext
 
@@ -449,3 +451,84 @@ class TestSimContextArmController:
         ) as ctx:
             # Should not raise
             ctx.arm("test_arm").release("some_object")
+
+
+class TestResetState:
+    """Tests for reset_state() — the safe interactive reset."""
+
+    def test_reset_state_releases_teleop_ownership(self, model_and_data):
+        """Teleop ownership must be released by reset_state.
+
+        Reproduces the bug where activating teleop (browser Activate
+        button), then calling reset(), left the arm owned by TELEOP.
+        Subsequent pickup() calls saw _arm_preempted() → True and
+        skipped all arms.
+        """
+        model, data = model_and_data
+        arm1 = MockArm("arm1", model, data)
+        arm2 = MockArm("arm2", model, data)
+        event_loop = PhysicsEventLoop()
+
+        with SimContext(
+            model,
+            data,
+            {"arm1": arm1, "arm2": arm2},
+            physics=False,
+            headless=True,
+            event_loop=event_loop,
+        ) as ctx:
+            # Simulate teleop activation on both arms (what the browser
+            # Activate button does: preempt ownership → TELEOP)
+            teleop_owners = {}
+            for name in ("arm1", "arm2"):
+                owner = object()  # stand-in for TeleopController
+                ctx.ownership.preempt(name, OwnerKind.TELEOP, owner)
+                ctx.ownership.clear_abort(name)
+                teleop_owners[name] = owner
+
+            for _ in range(5):
+                event_loop.tick()
+
+            # Both arms should be owned by teleop
+            assert ctx.ownership.owner_of("arm1")[0] == OwnerKind.TELEOP
+            assert ctx.ownership.owner_of("arm2")[0] == OwnerKind.TELEOP
+
+            # Reset
+            ctx.reset_state()
+
+            # Both arms must be IDLE after reset
+            assert ctx.ownership.owner_of("arm1")[0] == OwnerKind.IDLE
+            assert ctx.ownership.owner_of("arm2")[0] == OwnerKind.IDLE
+
+            # Teleop entries must be cleared
+            assert len(event_loop._teleop_entries) == 0
+
+    def test_reset_state_holds_at_current_qpos(self, model_and_data, mock_arm):
+        """After reset_state, controller targets match current qpos."""
+        model, data = model_and_data
+        event_loop = PhysicsEventLoop()
+
+        with SimContext(
+            model,
+            data,
+            {"test_arm": mock_arm},
+            physics=False,
+            headless=True,
+            event_loop=event_loop,
+        ) as ctx:
+            # Move arm to a known position
+            target = np.array([0.5, -0.3])
+            ctx.step({"test_arm": target})
+
+            # Modify qpos externally (simulate keyframe reset)
+            for i, idx in enumerate(mock_arm.joint_qpos_indices):
+                data.qpos[idx] = 0.0
+
+            ctx.reset_state()
+
+            # Deferred hold: first tick captures qpos=0
+            event_loop.tick()
+
+            # Controller should now hold at 0, not at old target
+            for idx in mock_arm.joint_qpos_indices:
+                assert abs(data.qpos[idx]) < 1e-10

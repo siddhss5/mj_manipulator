@@ -728,10 +728,12 @@ class SimContext:
         if self._event_loop is not None:
             self._event_loop._deactivate_all_teleop()
 
-        # 2. Clear ownership (abort any running trajectories, release all arms)
+        # 2. Release all ownership (teleop, trajectory, gripper → IDLE)
+        #    and clear abort flags. Without force_release_all(), teleop
+        #    ownership persists after deactivation and _arm_preempted()
+        #    blocks subsequent pickup/place calls.
         if self._ownership is not None:
-            self._ownership.abort_all()
-            self._ownership.clear_all()
+            self._ownership.force_release_all()
 
         # 3. Release all grasps: clear grasp manager bookkeeping, detach
         #    kinematic welds, and reset grasp verifiers to IDLE.
