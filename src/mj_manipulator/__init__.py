@@ -37,6 +37,7 @@ from mj_manipulator.config import (
 )
 from mj_manipulator.controller import ArmExecutor, Controller, EntityExecutor
 from mj_manipulator.executor import KinematicExecutor, PhysicsExecutor
+from mj_manipulator.force_control import ForceThresholds, SpeedProfile
 from mj_manipulator.grasp_manager import GraspManager
 from mj_manipulator.grasp_verifier import (
     GraspState,
@@ -52,6 +53,7 @@ from mj_manipulator.load_signals import (
     LoadSignal,
     WristFTSignal,
 )
+from mj_manipulator.outcome import FailureKind, Outcome, failure, success
 from mj_manipulator.ownership import OwnerKind, OwnershipRegistry
 from mj_manipulator.perception import SimPerceptionService
 from mj_manipulator.physics_controller import ArmPhysicsExecutor, PhysicsController
@@ -66,6 +68,7 @@ from mj_manipulator.protocols import (
 )
 from mj_manipulator.robot import ManipulationRobot, RobotBase
 from mj_manipulator.safe_retract import safe_retract
+from mj_manipulator.servo import ft_guarded_move, servo_to_pose
 from mj_manipulator.sim_context import SimArmController, SimContext
 from mj_manipulator.status_hud import StatusHud
 from mj_manipulator.teleop import (
@@ -138,6 +141,17 @@ __all__ = [
     "TwistStepResult",
     "MoveUntilTouchResult",
     "TwistExecutionResult",
+    # Outcome (structured behavior returns)
+    "Outcome",
+    "FailureKind",
+    "success",
+    "failure",
+    # Force control
+    "ForceThresholds",
+    "SpeedProfile",
+    # Servo primitives (contact-rich manipulation)
+    "servo_to_pose",
+    "ft_guarded_move",
     # Safe retract
     "safe_retract",
     # Teleop

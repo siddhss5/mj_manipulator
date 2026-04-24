@@ -488,6 +488,18 @@ class Arm:
         mujoco.mj_forward(self.env.model, self.env.data)
         return _read_site_pose(self.env.data, self.ee_site_id, self.config.tcp_offset)
 
+    def get_ee_jacobian(self) -> np.ndarray:
+        """6xN end-effector Jacobian in world frame.
+
+        Rows 0-2 are linear velocity, rows 3-5 are angular velocity.
+        Columns correspond to arm joints in joint_qvel_indices order.
+        """
+        if self.ee_site_id == -1:
+            raise RuntimeError("No ee_site configured")
+        from mj_manipulator.cartesian import get_ee_jacobian
+
+        return get_ee_jacobian(self.env.model, self.env.data, self.ee_site_id, self.joint_qvel_indices)
+
     def get_joint_limits(self) -> tuple[np.ndarray, np.ndarray]:
         """Joint position limits as (lower, upper) arrays.
 
