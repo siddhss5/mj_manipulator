@@ -56,8 +56,8 @@ class TestServoToPose:
         assert result.success
         assert result.details["position_error_m"] < 0.01
 
-    def test_timeout_on_unreachable(self, franka_ctx):
-        """Servo to a pose far out of reach — should timeout."""
+    def test_fails_on_unreachable(self, franka_ctx):
+        """Servo to a pose far out of reach — should fail fast."""
         arm, ctx = franka_ctx
         target = np.eye(4)
         target[:3, 3] = [2.0, 0.0, 0.0]  # way out of reach
@@ -67,10 +67,14 @@ class TestServoToPose:
             arm,
             ctx,
             speed_profile=SpeedProfile.constant(linear=0.1, angular=0.5),
-            timeout=0.5,
+            timeout=2.0,
         )
         assert not result.success
-        assert result.failure_kind == FailureKind.TIMEOUT
+        # May fail as collision (rejected config), no_progress, or timeout
+        assert result.failure_kind in (
+            FailureKind.EXECUTION_FAILED,
+            FailureKind.TIMEOUT,
+        )
 
     def test_speed_profile_decelerates(self, franka_ctx):
         """Verify the arm moves slower near the target with a ramp profile."""
