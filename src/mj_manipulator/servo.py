@@ -114,11 +114,34 @@ def servo_to_pose(
     arm_name = arm.config.name
     t0 = time.monotonic()
 
+    # Progress tracking: check distance moved over a rolling window.
+    # Physics PD dynamics mean per-step motion is tiny — we measure
+    # over 1-second windows instead.
+    progress_check_interval = 1.0  # seconds
+    last_progress_check = t0
+    last_progress_pos = arm.get_ee_pose()[:3, 3].copy()
+    min_progress_m = 0.0005  # 0.5mm per second minimum
+
     while time.monotonic() - t0 < timeout:
         # Current EE pose
         ee_pose = arm.get_ee_pose()
         pos_err = target[:3, 3] - ee_pose[:3, 3]
         pos_err_norm = float(np.linalg.norm(pos_err))
+
+        # Progress check every interval
+        now = time.monotonic()
+        if now - last_progress_check >= progress_check_interval:
+            progress = float(np.linalg.norm(ee_pose[:3, 3] - last_progress_pos))
+            if progress < min_progress_m and pos_err_norm > position_tol:
+                return failure(
+                    FailureKind.EXECUTION_FAILED,
+                    "servo_to_pose:no_progress",
+                    position_error_m=pos_err_norm,
+                    progress_m=progress,
+                    window_s=progress_check_interval,
+                )
+            last_progress_pos = ee_pose[:3, 3].copy()
+            last_progress_check = now
 
         if ignore_orientation:
             rot_err = np.zeros(3)
@@ -226,6 +249,13 @@ def ft_guarded_move(
     t0 = time.monotonic()
     elapsed = 0.0
 
+    # Progress tracking (same pattern as servo_to_pose)
+    last_progress_check = t0
+    last_progress_pos = arm.get_ee_pose()[:3, 3].copy()
+    progress_check_interval = 0.5  # seconds (shorter — guarded moves are short)
+    min_progress_m = 0.0003  # 0.3mm per 0.5s minimum
+    has_linear_twist = float(np.linalg.norm(twist[:3])) > 1e-4
+
     while elapsed < timeout:
         # F/T check
         exceeded, force_mag, torque_mag = _check_ft(arm, ft_threshold)
@@ -260,6 +290,21 @@ def ft_guarded_move(
         ctx.step_cartesian(arm_name, q_target, qd)
 
         elapsed = time.monotonic() - t0
+
+        # Progress check (only for non-zero linear twists)
+        now = time.monotonic()
+        if has_linear_twist and now - last_progress_check >= progress_check_interval:
+            ee_pos = arm.get_ee_pose()[:3, 3]
+            progress = float(np.linalg.norm(ee_pos - last_progress_pos))
+            if progress < min_progress_m:
+                return failure(
+                    FailureKind.EXECUTION_FAILED,
+                    "ft_guarded_move:no_progress",
+                    elapsed_s=elapsed,
+                    progress_m=progress,
+                )
+            last_progress_pos = ee_pos.copy()
+            last_progress_check = now
 
     return failure(
         FailureKind.TIMEOUT,
