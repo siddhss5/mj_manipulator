@@ -82,24 +82,27 @@ def servo_to_pose(
     ft_threshold: ForceThresholds | None = None,
     position_tol: float = 0.005,
     rotation_tol: float = 0.05,
-    ignore_orientation: bool = False,
     timeout: float = 10.0,
 ) -> Outcome:
-    """Cartesian servo to a target pose with deceleration and F/T monitoring.
+    """Cartesian servo to a 6D target pose with deceleration and F/T monitoring.
 
-    Built on TeleopController — gets collision checking, velocity clamping,
-    and IK/Jacobian infrastructure for free. The servo updates the target
-    pose each cycle with a speed-profiled intermediate goal.
+    Servos to the full SE(3) pose — both position and orientation.
+    Built on TeleopController — gets collision checking, velocity
+    clamping, and IK/Jacobian infrastructure for free.
+
+    The speed profile controls the approach speed based on distance
+    to target (decelerates near the target). F/T monitoring aborts
+    on contact. Progress detection aborts if the arm stalls.
 
     Args:
-        target: 4x4 target pose (world frame).
+        target: 4x4 target pose (world frame). Both position and
+            orientation are tracked.
         arm: Arm instance.
         ctx: Execution context.
         speed_profile: Distance-based speed ramp. If None, constant 0.05 m/s.
         ft_threshold: F/T abort threshold. If None, no F/T monitoring.
         position_tol: Stop when position error < this (meters).
         rotation_tol: Stop when rotation error < this (radians).
-        ignore_orientation: If True, only track position.
         timeout: Maximum duration (seconds).
 
     Returns:
@@ -125,18 +128,11 @@ def servo_to_pose(
             ee_pose = arm.get_ee_pose()
             pos_err = target[:3, 3] - ee_pose[:3, 3]
             pos_err_norm = float(np.linalg.norm(pos_err))
+            rot_err = _rotation_error(target[:3, :3], ee_pose[:3, :3])
+            rot_err_norm = float(np.linalg.norm(rot_err))
 
-            if ignore_orientation:
-                rot_err_norm = 0.0
-            else:
-                rot_err = _rotation_error(target[:3, :3], ee_pose[:3, :3])
-                rot_err_norm = float(np.linalg.norm(rot_err))
-
-            # Convergence
-            converged = pos_err_norm < position_tol
-            if not ignore_orientation:
-                converged = converged and rot_err_norm < rotation_tol
-            if converged:
+            # Convergence — both position and orientation
+            if pos_err_norm < position_tol and rot_err_norm < rotation_tol:
                 return success(
                     position_error_m=pos_err_norm,
                     rotation_error_rad=rot_err_norm,
@@ -167,7 +163,10 @@ def servo_to_pose(
                 last_progress_pos = ee_pose[:3, 3].copy()
                 last_progress_check = now
 
-            # Compute intermediate target with speed profile
+            # Compute intermediate target with speed profile.
+            # Position: step toward target at profiled speed.
+            # Orientation: use the final target orientation — TeleopController
+            # handles the interpolation via velocity clamping.
             lin_speed = speed_profile.linear_speed(pos_err_norm)
             step_distance = lin_speed * dt
             if pos_err_norm > 1e-8:
@@ -176,13 +175,10 @@ def servo_to_pose(
             else:
                 step_pos = target[:3, 3]
 
-            # Build intermediate pose for this step
             step_pose = target.copy()
             step_pose[:3, 3] = step_pos
-            if ignore_orientation:
-                step_pose[:3, :3] = ee_pose[:3, :3]  # keep current orientation
 
-            # Drive TeleopController — gets collision check + velocity clamp
+            # Drive TeleopController — collision check + velocity clamp
             ctrl.set_target_pose(step_pose)
             state = ctrl.step()
 
