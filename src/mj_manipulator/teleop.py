@@ -77,6 +77,13 @@ class TeleopConfig:
     while always making progress toward the target. At 30Hz this is
     ~1.5 rad/s (~85°/s) — comfortable teleop speed."""
 
+    max_cartesian_speed: float | None = None
+    """Maximum EE linear speed (m/s). If set, joint velocities are scaled
+    down so the EE tip never exceeds this speed. This is the real safety
+    limit for human-proximate operation — joint limits alone don't
+    guarantee Cartesian speed bounds because the Jacobian varies with
+    configuration."""
+
     twist_dt: float = 0.008
     """Timestep for CartesianController twist integration."""
 
@@ -410,9 +417,23 @@ class TeleopController:
                 delta = delta * (max_step / max_component)
         q_target = q_current + delta
 
-        # Velocity feedforward — now guaranteed within limits because
-        # delta was already clamped to vel_limit * dt above.
+        # Velocity feedforward — now guaranteed within joint limits
+        # because delta was already clamped to vel_limit * dt above.
         qd = delta / max(dt, 1e-6)
+
+        # Cartesian speed limit — the real safety guarantee for
+        # human-proximate operation. Joint limits alone don't bound
+        # EE speed because the Jacobian varies with configuration.
+        max_cart = self._config.max_cartesian_speed
+        if max_cart is not None and max_cart > 0:
+            J = self._arm.get_ee_jacobian()
+            ee_vel = J @ qd
+            ee_linear_speed = float(np.linalg.norm(ee_vel[:3]))
+            if ee_linear_speed > max_cart:
+                scale = max_cart / ee_linear_speed
+                qd = qd * scale
+                delta = qd * dt
+                q_target = q_current + delta
 
         arm_name = self._arm.config.name
         self._ctx.step_cartesian(arm_name, q_target, qd)

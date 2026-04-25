@@ -114,7 +114,6 @@ def servo_to_pose(
         speed_profile = SpeedProfile.constant(linear=0.05, angular=0.3)
 
     ctrl = _make_teleop(arm, ctx)
-    dt = ctx.control_dt
     t0 = time.monotonic()
 
     # Progress tracking: check distance over rolling windows
@@ -163,20 +162,10 @@ def servo_to_pose(
                 last_progress_pos = ee_pose[:3, 3].copy()
                 last_progress_check = now
 
-            # Modulate TeleopController speed based on distance.
-            # The speed profile controls how fast the arm is allowed to
-            # move — TeleopController's velocity clamping does the rest.
-            # Both position and orientation are handled proportionally
-            # by TeleopController's internal twist computation.
-            lin_speed = speed_profile.linear_speed(pos_err_norm)
-            limits = getattr(arm.config, "kinematic_limits", None)
-            if limits is not None:
-                # Scale velocity limits by speed fraction
-                max_speed = speed_profile.max_linear
-                speed_fraction = lin_speed / max_speed if max_speed > 0 else 1.0
-                ctrl._config.max_joint_step = 0.05 * speed_fraction
-            else:
-                ctrl._config.max_joint_step = lin_speed * dt
+            # Set Cartesian speed limit from the speed profile.
+            # This is the real safety guarantee — the EE tip will
+            # never exceed this speed regardless of arm configuration.
+            ctrl._config.max_cartesian_speed = speed_profile.linear_speed(pos_err_norm)
 
             # Pass the full target pose — TeleopController handles
             # proportional control for both position and orientation,
