@@ -12,9 +12,9 @@ General-purpose primitives for contact-rich manipulation:
   a threshold or duration elapses.
 
 Both are built on ``TeleopController`` — the same collision checking,
-velocity clamping, and IK/Jacobian infrastructure that drives interactive
-teleop. The servo primitives are teleop with a programmatic target
-instead of a gizmo.
+velocity clamping, and IK/Jacobian infrastructure that drives
+interactive teleop. The servo primitives are teleop with a
+programmatic target instead of a gizmo.
 """
 
 from __future__ import annotations
@@ -36,8 +36,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
 def _rotation_error(R_target: np.ndarray, R_current: np.ndarray) -> np.ndarray:
-    """Compute rotation error as axis-angle vector."""
+    """Compute rotation error as axis-angle vector.
+
+    Returns a 3D vector whose direction is the rotation axis and
+    whose magnitude is the rotation angle (radians).
+    """
     R_err = R_target @ R_current.T
     cos_angle = np.clip((np.trace(R_err) - 1) / 2, -1, 1)
     angle = float(np.arccos(cos_angle))
@@ -54,7 +63,12 @@ def _rotation_error(R_target: np.ndarray, R_current: np.ndarray) -> np.ndarray:
 
 
 def _check_ft(arm: Arm, threshold: ForceThresholds | None) -> tuple[bool, float, float]:
-    """Check F/T against threshold. Returns (exceeded, force_mag, torque_mag)."""
+    """Check F/T against threshold.
+
+    Returns (exceeded, force_mag, torque_mag). Returns (False, 0, 0)
+    when no threshold is set, no sensor is available, or sensor data
+    is invalid (kinematic mode).
+    """
     if threshold is None:
         return False, 0.0, 0.0
     if not arm.has_ft_sensor or not arm.ft_valid:
@@ -65,12 +79,42 @@ def _check_ft(arm: Arm, threshold: ForceThresholds | None) -> tuple[bool, float,
     return threshold.check(wrench)
 
 
-def _make_teleop(arm: Arm, ctx: ExecutionContext) -> TeleopController:
+def _make_teleop(
+    arm: Arm,
+    ctx: ExecutionContext,
+    safety_mode: SafetyMode = SafetyMode.REJECT,
+) -> TeleopController:
     """Create a TeleopController configured for programmatic servo."""
-    config = TeleopConfig(safety_mode=SafetyMode.REJECT)
+    config = TeleopConfig(safety_mode=safety_mode)
     ctrl = TeleopController(arm, ctx, config=config)
     ctrl.activate()
     return ctrl
+
+
+def _rodrigues_step(R: np.ndarray, angular_velocity: np.ndarray, dt: float) -> np.ndarray:
+    """Integrate orientation by one step using Rodrigues' rotation formula.
+
+    Args:
+        R: 3x3 current rotation matrix.
+        angular_velocity: 3D angular velocity in world frame (rad/s).
+        dt: Time step (seconds).
+
+    Returns:
+        Updated 3x3 rotation matrix.
+    """
+    ang = angular_velocity * dt
+    ang_norm = float(np.linalg.norm(ang))
+    if ang_norm < 1e-8:
+        return R
+    axis = ang / ang_norm
+    K = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
+    R_step = np.eye(3) + np.sin(ang_norm) * K + (1 - np.cos(ang_norm)) * K @ K
+    return R_step @ R
+
+
+# ---------------------------------------------------------------------------
+# Public primitives
+# ---------------------------------------------------------------------------
 
 
 def servo_to_pose(
@@ -83,6 +127,7 @@ def servo_to_pose(
     position_tol: float = 0.005,
     rotation_tol: float = 0.05,
     timeout: float = 10.0,
+    safety_mode: SafetyMode = SafetyMode.REJECT,
 ) -> Outcome:
     """Cartesian servo to a 6D target pose with deceleration and F/T monitoring.
 
@@ -90,37 +135,43 @@ def servo_to_pose(
     Built on TeleopController — gets collision checking, velocity
     clamping, and IK/Jacobian infrastructure for free.
 
-    The speed profile controls the approach speed based on distance
-    to target (decelerates near the target). F/T monitoring aborts
-    on contact. Progress detection aborts if the arm stalls.
+    The speed profile controls the Cartesian speed limit based on
+    distance to target (decelerates near the target). F/T monitoring
+    aborts on contact. Progress detection aborts if the arm stalls.
 
     Args:
-        target: 4x4 target pose (world frame). Both position and
-            orientation are tracked.
+        target: 4x4 target pose (world frame).
         arm: Arm instance.
         ctx: Execution context.
-        speed_profile: Distance-based speed ramp. If None, constant 0.05 m/s.
+        speed_profile: Distance-based speed ramp. If None, constant
+            0.05 m/s linear, 0.3 rad/s angular.
         ft_threshold: F/T abort threshold. If None, no F/T monitoring.
-        position_tol: Stop when position error < this (meters).
-        rotation_tol: Stop when rotation error < this (radians).
+        position_tol: Convergence threshold for position (meters).
+        rotation_tol: Convergence threshold for rotation (radians).
         timeout: Maximum duration (seconds).
+        safety_mode: Collision handling — REJECT (abort on collision,
+            default) or ALLOW (continue through collision).
 
     Returns:
-        Outcome with success=True if target reached, or failure with
-        SAFETY_ABORTED (F/T), EXECUTION_FAILED (collision/no_progress),
-        or TIMEOUT.
+        Outcome with:
+        - success=True if target reached within tolerance
+        - SAFETY_ABORTED if F/T exceeded
+        - EXECUTION_FAILED if collision (REJECT mode) or no progress
+        - TIMEOUT if not converged within timeout
     """
     if speed_profile is None:
         speed_profile = SpeedProfile.constant(linear=0.05, angular=0.3)
 
-    ctrl = _make_teleop(arm, ctx)
+    ctrl = _make_teleop(arm, ctx, safety_mode)
     t0 = time.monotonic()
 
-    # Progress tracking: check distance over rolling windows
+    # Progress tracking: measure EE movement over rolling 1-second windows.
+    # Physics PD dynamics produce tiny per-step motion — per-tick checking
+    # triggers false positives.
     progress_check_interval = 1.0
     last_progress_check = t0
     last_progress_pos = arm.get_ee_pose()[:3, 3].copy()
-    min_progress_m = 0.0005
+    min_progress_m = 0.0005  # 0.5mm per second minimum
 
     try:
         while time.monotonic() - t0 < timeout:
@@ -197,12 +248,17 @@ def ft_guarded_move(
     ft_threshold: ForceThresholds,
     duration: float = 2.0,
     timeout: float | None = None,
+    safety_mode: SafetyMode = SafetyMode.REJECT,
 ) -> Outcome:
     """Move in a fixed direction until F/T exceeds threshold.
 
-    Built on TeleopController — gets collision checking and velocity
-    clamping for free. Converts the constant twist to a sequence of
-    target poses and drives TeleopController each cycle.
+    Integrates a running target pose at the twist velocity and drives
+    TeleopController to track it. Gets collision checking and velocity
+    clamping for free.
+
+    The running target advances independently of the arm's actual
+    position — in physics mode it leads ahead of the PD controller,
+    which is correct (same principle as trajectory feedforward).
 
     Args:
         twist: 6D twist [vx, vy, vz, wx, wy, wz] in world frame.
@@ -210,23 +266,26 @@ def ft_guarded_move(
         ctx: Execution context.
         ft_threshold: F/T threshold for contact detection.
         duration: Maximum motion duration (seconds).
-        timeout: Hard timeout. If None, uses duration * 1.5.
+        timeout: Hard timeout. If None, uses ``duration * 1.5``.
+        safety_mode: Collision handling — REJECT (abort, default)
+            or ALLOW (continue through collision, useful when contact
+            is expected, e.g., food stabbing).
 
     Returns:
-        Outcome with success=True. ``details["contact"]`` distinguishes
-        contact-terminated from duration-elapsed.
+        Outcome with success=True. Check ``details["contact"]`` to
+        distinguish contact-terminated (True) from duration-elapsed
+        (False).
     """
     if timeout is None:
         timeout = duration * 1.5
 
-    ctrl = _make_teleop(arm, ctx)
+    ctrl = _make_teleop(arm, ctx, safety_mode)
     t0 = time.monotonic()
 
-    # Running target: starts at current pose, integrates at twist velocity.
-    # TeleopController tracks this moving target — gets collision checking,
-    # velocity clamping, and 6D pose tracking for free.
+    # Running target: starts at current pose, advances at twist velocity.
     running_target = arm.get_ee_pose().copy()
     lin_speed = float(np.linalg.norm(twist[:3]))
+    dt_step = ctx.control_dt
 
     # Set Cartesian speed limit to the twist magnitude
     ctrl._config.max_cartesian_speed = lin_speed if lin_speed > 1e-6 else None
@@ -236,7 +295,7 @@ def ft_guarded_move(
     progress_check_interval = 0.5
     last_progress_check = t0
     last_progress_pos = arm.get_ee_pose()[:3, 3].copy()
-    min_progress_m = 0.0003
+    min_progress_m = 0.0003  # 0.3mm per 0.5s
 
     try:
         while True:
@@ -263,19 +322,9 @@ def ft_guarded_move(
             if elapsed >= duration:
                 return success(contact=False, elapsed_s=elapsed)
 
-            # Advance the running target by twist * dt.
-            # Position integrates linearly. Orientation integrates via
-            # axis-angle (twist[3:] is angular velocity in world frame).
-            dt_step = ctx.control_dt
+            # Advance the running target
             running_target[:3, 3] += twist[:3] * dt_step
-            ang = twist[3:] * dt_step
-            ang_norm = float(np.linalg.norm(ang))
-            if ang_norm > 1e-8:
-                # Rodrigues rotation
-                axis = ang / ang_norm
-                K = np.array([[0, -axis[2], axis[1]], [axis[2], 0, -axis[0]], [-axis[1], axis[0], 0]])
-                R_step = np.eye(3) + np.sin(ang_norm) * K + (1 - np.cos(ang_norm)) * K @ K
-                running_target[:3, :3] = R_step @ running_target[:3, :3]
+            running_target[:3, :3] = _rodrigues_step(running_target[:3, :3], twist[3:], dt_step)
 
             # Drive TeleopController with the running target
             ctrl.set_target_pose(running_target)
