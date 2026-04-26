@@ -534,12 +534,13 @@ class TeleopController:
                 continue  # neither body is ours
             if b1_mine and b2_mine:
                 continue  # self-collision (handled by exclude tags)
-            # One is ours, one isn't — check if the other is another arm
-            other = b2 if b1_mine else b1
-            other_name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_BODY, other) or ""
-            if "ur5e" in other_name or "gripper" in other_name:
-                in_collision = True
-                break
+            # One of ours is penetrating something that isn't ours.
+            # The per-arm CC (checked first) handles arm-vs-environment
+            # on a forked env. This live check catches what the forked
+            # env can't see: other arms, other entities, and objects
+            # that moved since the CC was created.
+            in_collision = True
+            break
 
         # Restore
         for i, idx in enumerate(indices):
@@ -567,6 +568,12 @@ class TeleopController:
                     extra_arm_body_names=self._arm.config.extra_arm_body_names,
                 )
             except Exception:
+                logger.warning(
+                    "Failed to create collision checker for %s — "
+                    "teleop will proceed without per-arm collision checking",
+                    self._arm.config.name,
+                    exc_info=True,
+                )
                 return None
         return self._collision_checker
 
