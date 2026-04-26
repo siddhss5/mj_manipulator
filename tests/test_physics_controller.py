@@ -103,9 +103,9 @@ class TestPhysicsControllerStepping:
             np.array([0.5, -0.5]),
             np.array([0.1, 0.1]),
         )
-        # Actuators should have been commanded with reactive lookahead
-        # cmd = 0.5 + 2*0.002*0.1 = 0.5004
-        expected = 0.5 + 2.0 * controller.control_dt * 0.1
+        # Actuators should have been commanded with lookahead_time feedforward
+        # cmd = 0.5 + lookahead_time * 0.1
+        expected = 0.5 + controller.config.lookahead_time * 0.1
         assert abs(data.ctrl[controller._arms["test_arm"].actuator_ids[0]] - expected) < 1e-6
 
     def test_step_reactive_unknown_raises(self, controller):

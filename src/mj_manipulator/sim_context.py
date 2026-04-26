@@ -657,7 +657,7 @@ class SimContext:
         state.target_velocity = (
             np.asarray(velocity).copy() if velocity is not None else np.zeros(len(state.actuator_ids))
         )
-        state.lookahead = 2.0 * self._controller.control_dt
+        state.lookahead = self._controller.config.lookahead_time
 
     def _step_cartesian_impl(self, arm_name: str, position: np.ndarray, velocity: np.ndarray | None) -> None:
         if self._controller is not None:

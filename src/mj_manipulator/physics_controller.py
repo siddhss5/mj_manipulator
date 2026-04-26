@@ -180,7 +180,7 @@ class PhysicsController(Controller):
         )
 
         # Reactive arm: small lookahead
-        reactive_lookahead = 2.0 * self.control_dt
+        reactive_lookahead = self.config.lookahead_time
         q_cmd = state.target_position + reactive_lookahead * state.target_velocity
         self.data.ctrl[state.actuator_ids] = q_cmd
 
