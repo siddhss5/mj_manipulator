@@ -134,6 +134,8 @@ def create_ur5e_arm(
         ),
         ee_site=ee_site,
         tcp_offset=tcp_offset,
+        max_cartesian_speed=0.3,  # industrial arm, faster
+        max_cartesian_angular=1.0,
     )
 
     arm = Arm(env, config)

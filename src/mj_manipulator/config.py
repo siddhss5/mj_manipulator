@@ -64,10 +64,15 @@ class ArmConfig(EntityConfig):
     """Configuration for a single arm.
 
     Gripper-specific fields (body names, actuator, hand type) belong on the
-    Gripper protocol, not here. ArmConfig defines the kinematic chain only.
+    Gripper protocol, not here. ArmConfig defines the kinematic chain and
+    the arm's dynamic capabilities.
 
     kinematic_limits is required and robot-specific. Use your robot's
     datasheet values (e.g., KinematicLimits for UR5e, Franka, Xarm).
+
+    Cartesian control parameters (max_cartesian_speed, max_cartesian_angular,
+    reactive_gain) are used by TeleopController and servo primitives. Set
+    these based on the arm's workspace, PD dynamics, and safety requirements.
     """
 
     kinematic_limits: KinematicLimits  # required: robot-specific velocity/acceleration limits
@@ -77,6 +82,20 @@ class ArmConfig(EntityConfig):
     ft_torque_sensor: str | None = None  # MuJoCo torque sensor name (3-axis)
     extra_arm_body_names: list[str] | None = None  # Additional bodies to treat as part of arm for collision
     planning_defaults: PlanningDefaults = field(default_factory=PlanningDefaults)
+
+    # Cartesian control limits — the arm declares what it can do.
+    # TeleopController and servo primitives read these.
+    max_cartesian_speed: float = 0.2
+    """Maximum EE linear speed (m/s) for reactive control (teleop, servo).
+    Set conservatively for arms near humans (e.g., 0.06 for feeding).
+    Enforced via Jacobian-based speed checking in _check_and_commit."""
+
+    max_cartesian_angular: float = 0.5
+    """Maximum EE angular speed (rad/s) for reactive control."""
+
+    reactive_gain: float = 1.0
+    """Proportional gain for pose error → twist conversion in teleop.
+    Higher = faster response to gizmo movement, but may overshoot."""
 
     def __post_init__(self):
         """Set entity_type to arm."""

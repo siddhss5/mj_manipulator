@@ -610,9 +610,9 @@ class TeleopController:
             ) / (2 * np.sin(angle))
             rot_err = axis * angle
 
-        gain = 1.0
-        max_linear = 0.2
-        max_angular = 0.5
+        gain = self._arm.config.reactive_gain
+        max_linear = self._arm.config.max_cartesian_speed
+        max_angular = self._arm.config.max_cartesian_angular
 
         linear_vel = np.clip(gain * pos_err, -max_linear, max_linear)
         angular_vel = np.clip(gain * rot_err, -max_angular, max_angular)
