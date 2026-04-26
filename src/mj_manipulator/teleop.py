@@ -438,7 +438,12 @@ class TeleopController:
         # Cartesian speed limit — the real safety guarantee for
         # human-proximate operation. Joint limits alone don't bound
         # EE speed because the Jacobian varies with configuration.
+        # Use the override from TeleopConfig if set (servo sets this
+        # dynamically from SpeedProfile), otherwise use the arm's
+        # declared max_cartesian_speed.
         max_cart = self._config.max_cartesian_speed
+        if max_cart is None:
+            max_cart = self._arm.config.max_cartesian_speed
         if max_cart is not None and max_cart > 0:
             J = self._arm.get_ee_jacobian()
             ee_vel = J @ qd
